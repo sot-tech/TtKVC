@@ -1,0 +1,34 @@
+{
+	"log": {
+		"file": "ttkvc.log",
+		"level": "DEBUG"
+	},
+	"crawler": {
+		"url": "http://localhost/torrent/%d",
+		"threshold": 10,
+		"delay": 10,
+		"ignoreregexp": ".*1080p.*|.*1080P.*"
+	},
+	"kaltura": {
+		"url": "http://localhost",
+		"partnerid" : 100,
+		"userid": "user@localhost.localdomain",
+		"secret": "abcdef1234567890"
+	},
+	"telegramtoken": "123456:1234567890abcdef",
+	"adminotpseed": "BASE32LONGLONGSEEDSTRING",
+	"dbfile": "conf/example.sqlite",
+	"filespath": "/some/dir",
+	"msg": {
+		"announce": "TtKVCv${version}\nFile `${name}` upload started.\nEntry id: `${id}`",
+		"error": "Operation error: ${msg}",
+		"cmds": {
+			"start": "TtKVCv${version}\nAvailable commands:\n/start - this help\n/attach [OTP] - subscribe\n/detach - unsubscribe\n/state - state of chat",
+			"attach": "Added to announce list",
+			"detach": "Removed from announce list",
+			"state": "TtKVCv${version}\nNext index: ${index}\nPending files:\n```\n${files}\n```",
+			"auth": "Unauthorized",
+			"unknown": "Unknown command"
+		}
+	}	
+}

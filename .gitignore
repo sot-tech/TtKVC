@@ -1,0 +1,4 @@
+/go.sum
+/*.log
+/conf/*
+!/conf/example.*
