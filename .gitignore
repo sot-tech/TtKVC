@@ -2,3 +2,4 @@
 /*.log
 /conf/*
 !/conf/example.*
+/TGHelper

@@ -34,7 +34,8 @@ import (
 )
 
 type Database struct {
-	Con *sql.DB
+	ConnectionString string `json:"connection"`
+	Connection *sql.DB `json:"-"`
 }
 
 const (
@@ -44,6 +45,11 @@ const (
 	insertChat  = "INSERT INTO TT_CHAT(ID) VALUES ($1)"
 	delChat     = "DELETE FROM TT_CHAT WHERE ID = $1"
 	existChat   = "SELECT TRUE FROM TT_CHAT WHERE ID = $1"
+
+	selectAdmins = "SELECT ID FROM TT_ADMIN"
+	insertAdmin  = "INSERT INTO TT_ADMIN(ID) VALUES ($1)"
+	delAdmin     = "DELETE FROM TT_ADMIN WHERE ID = $1"
+	existAdmin   = "SELECT 1 FROM TT_ADMIN WHERE ID = $1"
 
 	selectTorrent         = "SELECT ID FROM TT_TORRENT WHERE NAME = $1"
 	insertOrUpdateTorrent = "INSERT INTO TT_TORRENT(NAME) VALUES ($1) ON CONFLICT(NAME) DO NOTHING"
@@ -62,10 +68,10 @@ const (
 
 func (db *Database) checkConnection() error {
 	var err error
-	if db.Con == nil {
+	if db.Connection == nil {
 		err = errors.New("connection not initialized")
 	} else {
-		err = db.Con.Ping()
+		err = db.Connection.Ping()
 	}
 	return err
 }
@@ -76,7 +82,7 @@ func (db *Database) getNotEmpty(query string, args ...interface{}) (bool, error)
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Con.Query(query, args...)
+		rows, err = db.Connection.Query(query, args...)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			val = rows.Next()
@@ -93,9 +99,31 @@ func (db *Database) execNoResult(query string, args ...interface{}) error {
 	var err error
 	err = db.checkConnection()
 	if err == nil {
-		_, err = db.Con.Exec(query, args...)
+		_, err = db.Connection.Exec(query, args...)
 	}
 	return err
+}
+
+func (db *Database) getIntArray(query string, args ...interface{}) ([]int64, error) {
+	var arr []int64
+	var err error
+	err = db.checkConnection()
+	if err == nil {
+		var rows *sql.Rows
+		rows, err = db.Connection.Query(query, args...)
+		if err == nil && rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var element int64
+				if err := rows.Scan(&element); err == nil {
+					arr = append(arr, element)
+				} else {
+					break
+				}
+			}
+		}
+	}
+	return arr, err
 }
 
 func (db *Database) GetChats() ([]int64, error) {
@@ -104,7 +132,7 @@ func (db *Database) GetChats() ([]int64, error) {
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Con.Query(selectChats)
+		rows, err = db.Connection.Query(selectChats)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -134,6 +162,27 @@ func (db *Database) DelChat(chat int64) error {
 	return db.execNoResult(delChat, chat)
 }
 
+func (db *Database) GetAdmins() ([]int64, error) {
+	return db.getIntArray(selectAdmins)
+}
+
+func (db *Database) GetAdminExist(chat int64) (bool, error) {
+	return db.getNotEmpty(existAdmin, chat)
+}
+
+func (db *Database) AddAdmin(id int64) error {
+	var exist bool
+	var err error
+	if exist, err = db.GetAdminExist(id); err == nil && !exist {
+		err = db.execNoResult(insertAdmin, id)
+	}
+	return err
+}
+
+func (db *Database) DelAdmin(id int64) error {
+	return db.execNoResult(delAdmin, id)
+}
+
 func (db *Database) GetTorrent(torrent string) (int64, []string, error) {
 	var torrentId int64
 	var torrentFiles []string
@@ -142,14 +191,14 @@ func (db *Database) GetTorrent(torrent string) (int64, []string, error) {
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Con.Query(selectTorrent, torrent)
+		rows, err = db.Connection.Query(selectTorrent, torrent)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			if rows.Next() {
 				err = rows.Scan(&torrentId)
 				if err == nil {
 					var rows *sql.Rows
-					rows, err = db.Con.Query(selectTorrentFiles, torrentId)
+					rows, err = db.Connection.Query(selectTorrentFiles, torrentId)
 					if err == nil && rows != nil {
 						defer rows.Close()
 						for rows.Next() {
@@ -192,7 +241,7 @@ func (db *Database) GetTorrentFilesNotReady() ([]TorrentFile, error) {
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Con.Query(selectTorrentFilesNotReady)
+		rows, err = db.Connection.Query(selectTorrentFilesNotReady)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -216,7 +265,7 @@ func (db *Database) getConfigValue(name string) (string, error) {
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Con.Query(selectConfig, name)
+		rows, err = db.Connection.Query(selectConfig, name)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			if rows.Next() {
@@ -259,9 +308,9 @@ func (db *Database) UpdateTgOffset(offset int) error {
 	return db.updateConfigValue(confTgOffset, strconv.FormatUint(uint64(offset), 10))
 }
 
-func (db *Database) Connect(path string) error {
+func (db *Database) Connect() error {
 	var err error
-	db.Con, err = sql.Open(DBDriver, path)
+	db.Connection, err = sql.Open(DBDriver, db.ConnectionString)
 	if err == nil {
 		err = db.checkConnection()
 	}
@@ -269,7 +318,7 @@ func (db *Database) Connect(path string) error {
 }
 
 func (db *Database) Close() {
-	if db.Con != nil {
-		_ = db.Con.Close()
+	if db.Connection != nil {
+		_ = db.Connection.Close()
 	}
 }

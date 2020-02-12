@@ -35,6 +35,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	tg "sot-te.ch/TtKVC/TGHelper"
+	"strings"
 	"time"
 )
 
@@ -54,12 +56,19 @@ type Observer struct {
 		Threshold    uint   `json:"threshold"`
 		IgnoreRegexp string `json:"ignoreregexp"`
 	} `json:"crawler"`
-	Kaltura       Kaltura `json:"kaltura"`
-	FilesPath     string        `json:"filespath"`
-	TelegramToken string        `json:"telegramtoken"`
-	AdminOTPSeed  string        `json:"adminotpseed"`
-	DBFile        string        `json:"dbfile"`
-	Messages      Message `json:"msg"`
+	FilesPath string   `json:"filespath"`
+	DB        Database `json:"db"`
+	Telegram  struct {
+		Token    string `json:"token"`
+		OTPSeed  string `json:"otpseed"`
+		Messages struct {
+			tg.TGMessages
+			State   string `json:"state"`
+			KUpload string `json:"kupload"`
+			TUpload string `json:"tupload"`
+		} `json:"msg"`
+	} `json:"telegram"`
+	Kaltura Kaltura `json:"kaltura"`
 }
 
 func ReadConfig(path string) (*Observer, error) {
@@ -71,18 +80,38 @@ func ReadConfig(path string) (*Observer, error) {
 	return &config, err
 }
 
-func (cr *Observer) Engage() {
-	database := &Database{}
-	Messages = cr.Messages
-	telegram := &Telegram{
-		DB:       database,
+func (cr *Observer) getState(chat int64) (string, error) {
+	var err error
+	sb := strings.Builder{}
+
+	return sb.String(), err
+}
+
+func (cr *Observer) initTg() *tg.Telegram {
+	telegram := tg.New(cr.Telegram.OTPSeed)
+	telegram.Messages = cr.Telegram.Messages.TGMessages
+	telegram.BackendFunctions = tg.TGBackendFunction{
+		GetOffset:  cr.DB.GetTgOffset,
+		SetOffset:  cr.DB.UpdateTgOffset,
+		ChatExist:  cr.DB.GetChatExist,
+		ChatAdd:    cr.DB.AddChat,
+		ChatRm:     cr.DB.DelChat,
+		AdminExist: cr.DB.GetAdminExist,
+		AdminAdd:   cr.DB.AddAdmin,
+		AdminRm:    cr.DB.DelAdmin,
+		State:      cr.getState,
 	}
-	cr.Kaltura.Telegram = telegram
+	return telegram
+}
+
+func (cr *Observer) Engage() {
 	ignorePattern := regexp.MustCompile(cr.Crawler.IgnoreRegexp)
-	err := database.Connect(cr.DBFile)
+	database := &Database{}
+	err := database.Connect()
 	if err == nil {
 		defer database.Close()
-		err = telegram.Connect(cr.TelegramToken, cr.AdminOTPSeed, -1)
+		telegram := cr.initTg()
+		err = telegram.Connect(cr.Telegram.Token, -1)
 		if err == nil {
 			go telegram.HandleUpdates()
 			baseOffset, err := database.GetCrawlOffset()
@@ -134,7 +163,7 @@ func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *reg
 					if err := database.AddTorrent(torrent.Info.Name, files); err != nil {
 						Logger.Error(err)
 					}
-				} else{
+				} else {
 					Logger.Infof("Torrent %s ignored", torrent.Info.Name)
 				}
 				baseOffset = currentOffset + 1
@@ -151,7 +180,7 @@ func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *reg
 	return baseOffset
 }
 
-func getReadyFiles(database *Database, files []TorrentFile, path string) []string{
+func getReadyFiles(database *Database, files []TorrentFile, path string) []string {
 	var filesToSend []string
 	for _, file := range files {
 		fullPath := filepath.Join(path, file.Name)
