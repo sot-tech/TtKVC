@@ -37,6 +37,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	tg "sot-te.ch/TGHelper"
 	"strings"
 	"time"
 )
@@ -63,7 +64,7 @@ type Kaltura struct {
 	PartnerId uint      `json:"partnerid"`
 	UserId    string    `json:"userid"`
 	Secret    string    `json:"secret"`
-	Telegram  *Telegram `json:"-"`
+	Telegram  *tg.Telegram `json:"-"`
 }
 
 type kSession struct {
@@ -259,10 +260,10 @@ func (kl *Kaltura) ProcessFiles(files []string) {
 			defer kl.endSession(session)
 			for _, f := range files {
 				if entryId, err := kl.createMediaEntry(session, f); err == nil {
-					msg := Messages.Announce
-					msg = strings.Replace(msg, msgId, entryId, -1)
-					msg = strings.Replace(msg, msgName, filepath.Base(f), -1)
-					go kl.Telegram.SendMsgToAll(msg)
+					//msg := kl.Telegram.Announce
+					//msg = strings.Replace(msg, msgId, entryId, -1)
+					//msg = strings.Replace(msg, msgName, filepath.Base(f), -1)
+					//go kl.Telegram.SendMsgToAll(msg)
 					if err := kl.uploadMediaContent(session, f, entryId); err != nil {
 						Logger.Error(err)
 					}

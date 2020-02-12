@@ -35,8 +35,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	tg "sot-te.ch/TtKVC/TGHelper"
-	"strings"
+	tg "sot-te.ch/TGHelper"
 	"time"
 )
 
@@ -82,9 +81,20 @@ func ReadConfig(path string) (*Observer, error) {
 
 func (cr *Observer) getState(chat int64) (string, error) {
 	var err error
-	sb := strings.Builder{}
+	var isMob, isAdmin bool
+	var pending, converting []string
+	if isMob, err = cr.DB.GetChatExist(chat); err != nil{
+		return "", err
+	}
+	if isAdmin, err = cr.DB.GetAdminExist(chat); err != nil{
+		return "", err
+	}
 
-	return sb.String(), err
+	return formatMessage(cr.Telegram.Messages.State, map[string]interface{}{
+		msgWatch: isMob,
+		msgAdmin: isAdmin,
+
+	}), err
 }
 
 func (cr *Observer) initTg() *tg.Telegram {
@@ -106,27 +116,24 @@ func (cr *Observer) initTg() *tg.Telegram {
 
 func (cr *Observer) Engage() {
 	ignorePattern := regexp.MustCompile(cr.Crawler.IgnoreRegexp)
-	database := &Database{}
-	err := database.Connect()
+	err := cr.DB.Connect()
 	if err == nil {
-		defer database.Close()
+		defer cr.DB.Close()
 		telegram := cr.initTg()
 		err = telegram.Connect(cr.Telegram.Token, -1)
 		if err == nil {
 			go telegram.HandleUpdates()
-			baseOffset, err := database.GetCrawlOffset()
+			baseOffset, err := cr.DB.GetCrawlOffset()
 			if err != nil {
 				Logger.Error(err)
 			}
 			for {
-				var i, offset uint
-				offset = baseOffset
-				for i = 0; i < cr.Crawler.Threshold; i++ {
-					baseOffset = checkTorrent(cr.Crawler.URL, offset, baseOffset, i, ignorePattern, database)
+				for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
+					baseOffset = cr.checkTorrent(offset + i, ignorePattern)
 				}
-				if files, err := database.GetTorrentFilesNotReady(); err == nil {
+				if files, err := cr.DB.GetTorrentFilesPending(); err == nil {
 					if files != nil && len(files) > 0 {
-						filesToSend := getReadyFiles(database, files, cr.FilesPath)
+						filesToSend := cr.getReadyFiles(files)
 						if len(filesToSend) > 0 {
 							sort.Strings(filesToSend)
 							go cr.Kaltura.ProcessFiles(filesToSend)
@@ -146,10 +153,9 @@ func (cr *Observer) Engage() {
 	}
 }
 
-func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *regexp.Regexp, database *Database) uint {
-	currentOffset := offset + i
+func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regexp) uint {
 	Logger.Debugf("Checking offset %d", currentOffset)
-	fullUrl := fmt.Sprintf(baseUrl, currentOffset)
+	fullUrl := fmt.Sprintf(cr.Crawler.URL, currentOffset)
 	if torrent, err := GetTorrent(fullUrl); err == nil {
 		if torrent != nil {
 			Logger.Infof("New file %s", torrent.Info.Name)
@@ -160,14 +166,14 @@ func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *reg
 					files := torrent.Files()
 					Logger.Debugf("Adding torrent %s", torrent.Info.Name)
 					Logger.Debugf("Files: %v", files)
-					if err := database.AddTorrent(torrent.Info.Name, files); err != nil {
+					if err := cr.DB.AddTorrent(torrent.Info.Name, files); err != nil {
 						Logger.Error(err)
 					}
 				} else {
 					Logger.Infof("Torrent %s ignored", torrent.Info.Name)
 				}
-				baseOffset = currentOffset + 1
-				if err := database.UpdateCrawlOffset(baseOffset); err != nil {
+				currentOffset++
+				if err := cr.DB.UpdateCrawlOffset(currentOffset); err != nil {
 					Logger.Error(err)
 				}
 			} else {
@@ -177,13 +183,13 @@ func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *reg
 			Logger.Debugf("%s not a torrent", fullUrl)
 		}
 	}
-	return baseOffset
+	return currentOffset
 }
 
-func getReadyFiles(database *Database, files []TorrentFile, path string) []string {
+func (cr *Observer) getReadyFiles(files []TorrentFile) []string {
 	var filesToSend []string
 	for _, file := range files {
-		fullPath := filepath.Join(path, file.Name)
+		fullPath := filepath.Join(cr.FilesPath, file.Name)
 		fullPath = filepath.FromSlash(fullPath)
 		if stat, err := os.Stat(fullPath); err == nil {
 			if stat == nil {
@@ -191,7 +197,7 @@ func getReadyFiles(database *Database, files []TorrentFile, path string) []strin
 			} else {
 				Logger.Debugf("Found ready file %s, size: %d", stat.Name(), stat.Size())
 				filesToSend = append(filesToSend, fullPath)
-				if err := database.SetTorrentFileReady(file.Id); err != nil {
+				if err := cr.DB.SetTorrentFileConverting(file.Id); err != nil {
 					Logger.Error(err)
 				}
 			}

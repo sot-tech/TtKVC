@@ -28,38 +28,27 @@ package TtKVC
 
 import (
 	"errors"
+	"fmt"
 	"github.com/op/go-logging"
 	"net/http"
+	"strings"
 )
 
 var Version = "0"
 
 const (
-	msgIndex    = "${index}"
-	msgErrorMsg = "${msg}"
-	msgId       = "${id}"
-	msgName     = "${name}"
-	msgFiles    = "${files}"
-	msgVersion  = "${version}"
+	msgIndex        = "${index}"
+	msgErrorMsg     = "${msg}"
+	msgId           = "${id}"
+	msgName         = "${name}"
+	msgWatch        = "${watch}"
+	msgAdmin        = "${admin}"
+	msgFilesPending = "${filesp}"
+	msgFilesConverting = "${filesc}"
+	msgUrl          = "${url}"
 )
 
-type CommandResponse struct {
-	Start        string `json:"start"`
-	Attach       string `json:"attach"`
-	Detach       string `json:"detach"`
-	State        string `json:"state"`
-	Unauthorized string `json:"auth"`
-	Unknown      string `json:"unknown"`
-}
-
-type Message struct {
-	Commands CommandResponse `json:"cmds"`
-	Announce string          `json:"announce"`
-	Error    string          `json:"error"`
-}
-
 var Logger = logging.MustGetLogger("observer")
-var Messages = Message{}
 
 func checkResponse(resp *http.Response, httpErr error) bool {
 	return httpErr == nil && resp != nil && resp.StatusCode < 400
@@ -79,4 +68,15 @@ func responseError(resp *http.Response, httpErr error) error {
 		err = errors.New(errMsg)
 	}
 	return err
+}
+
+func formatMessage(template string, values map[string]interface{}) string {
+	if values != nil {
+		kv := make([]string, 0, len(values)*2)
+		for k, v := range values {
+			kv = append(kv, k, fmt.Sprint(v))
+		}
+		template = strings.NewReplacer(kv...).Replace(template)
+	}
+	return template
 }
