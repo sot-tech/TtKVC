@@ -33,7 +33,6 @@ import (
 	"io"
 	"os"
 	"sot-te.ch/TtKVC"
-	"sot-te.ch/TtKVC/intl"
 )
 
 func main() {
@@ -73,7 +72,7 @@ func main() {
 
 	waiter := make(chan bool)
 	go func() {
-		fmt.Printf("Starting TtKVCv%s\n", intl.Version)
+		fmt.Printf("Starting TtKVCv%s\n", TtKVC.Version)
 		crawler.Engage()
 		waiter <- true
 	}()

@@ -24,7 +24,7 @@
  * OF SUCH DAMAGE.
  */
 
-package intl
+package TtKVC
 
 import (
 	"errors"

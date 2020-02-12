@@ -35,7 +35,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"sot-te.ch/TtKVCv0/intl"
 	"time"
 )
 
@@ -55,12 +54,12 @@ type Observer struct {
 		Threshold    uint   `json:"threshold"`
 		IgnoreRegexp string `json:"ignoreregexp"`
 	} `json:"crawler"`
-	Kaltura       intl.Kaltura `json:"kaltura"`
+	Kaltura       Kaltura `json:"kaltura"`
 	FilesPath     string        `json:"filespath"`
 	TelegramToken string        `json:"telegramtoken"`
 	AdminOTPSeed  string        `json:"adminotpseed"`
 	DBFile        string        `json:"dbfile"`
-	Messages      intl.Message `json:"msg"`
+	Messages      Message `json:"msg"`
 }
 
 func ReadConfig(path string) (*Observer, error) {
@@ -73,9 +72,9 @@ func ReadConfig(path string) (*Observer, error) {
 }
 
 func (cr *Observer) Engage() {
-	database := &intl.Database{}
-	intl.Messages = cr.Messages
-	telegram := &intl.Telegram{
+	database := &Database{}
+	Messages = cr.Messages
+	telegram := &Telegram{
 		DB:       database,
 	}
 	cr.Kaltura.Telegram = telegram
@@ -88,7 +87,7 @@ func (cr *Observer) Engage() {
 			go telegram.HandleUpdates()
 			baseOffset, err := database.GetCrawlOffset()
 			if err != nil {
-				intl.Logger.Error(err)
+				Logger.Error(err)
 			}
 			for {
 				var i, offset uint
@@ -105,66 +104,66 @@ func (cr *Observer) Engage() {
 						}
 					}
 				} else {
-					intl.Logger.Error(err)
+					Logger.Error(err)
 				}
 				sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
-				intl.Logger.Debugf("Sleeping %d sec", sleepTime)
+				Logger.Debugf("Sleeping %d sec", sleepTime)
 				time.Sleep(sleepTime * time.Second)
 			}
 		}
 	}
 	if err != nil {
-		intl.Logger.Fatal(err)
+		Logger.Fatal(err)
 	}
 }
 
-func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *regexp.Regexp, database *intl.Database) uint {
+func checkTorrent(baseUrl string, offset, baseOffset, i uint, ignorePattern *regexp.Regexp, database *Database) uint {
 	currentOffset := offset + i
-	intl.Logger.Debugf("Checking offset %d", currentOffset)
+	Logger.Debugf("Checking offset %d", currentOffset)
 	fullUrl := fmt.Sprintf(baseUrl, currentOffset)
-	if torrent, err := intl.GetTorrent(fullUrl); err == nil {
+	if torrent, err := GetTorrent(fullUrl); err == nil {
 		if torrent != nil {
-			intl.Logger.Infof("New file %s", torrent.Info.Name)
+			Logger.Infof("New file %s", torrent.Info.Name)
 			size := torrent.FullSize()
-			intl.Logger.Infof("New torrent size %d", size)
+			Logger.Infof("New torrent size %d", size)
 			if size > 0 {
 				if !ignorePattern.MatchString(torrent.Info.Name) {
 					files := torrent.Files()
-					intl.Logger.Debugf("Adding torrent %s", torrent.Info.Name)
-					intl.Logger.Debugf("Files: %v", files)
+					Logger.Debugf("Adding torrent %s", torrent.Info.Name)
+					Logger.Debugf("Files: %v", files)
 					if err := database.AddTorrent(torrent.Info.Name, files); err != nil {
-						intl.Logger.Error(err)
+						Logger.Error(err)
 					}
 				} else{
-					intl.Logger.Infof("Torrent %s ignored", torrent.Info.Name)
+					Logger.Infof("Torrent %s ignored", torrent.Info.Name)
 				}
 				baseOffset = currentOffset + 1
 				if err := database.UpdateCrawlOffset(baseOffset); err != nil {
-					intl.Logger.Error(err)
+					Logger.Error(err)
 				}
 			} else {
-				intl.Logger.Errorf("Zero torrent size, offset %d", currentOffset)
+				Logger.Errorf("Zero torrent size, offset %d", currentOffset)
 			}
 		} else {
-			intl.Logger.Debugf("%s not a torrent", fullUrl)
+			Logger.Debugf("%s not a torrent", fullUrl)
 		}
 	}
 	return baseOffset
 }
 
-func getReadyFiles(database *intl.Database, files []intl.TorrentFile, path string) []string{
+func getReadyFiles(database *Database, files []TorrentFile, path string) []string{
 	var filesToSend []string
 	for _, file := range files {
 		fullPath := filepath.Join(path, file.Name)
 		fullPath = filepath.FromSlash(fullPath)
 		if stat, err := os.Stat(fullPath); err == nil {
 			if stat == nil {
-				intl.Logger.Warningf("Unable to stat file %s", fullPath)
+				Logger.Warningf("Unable to stat file %s", fullPath)
 			} else {
-				intl.Logger.Debugf("Found ready file %s, size: %d", stat.Name(), stat.Size())
+				Logger.Debugf("Found ready file %s, size: %d", stat.Name(), stat.Size())
 				filesToSend = append(filesToSend, fullPath)
 				if err := database.SetTorrentFileReady(file.Id); err != nil {
-					intl.Logger.Error(err)
+					Logger.Error(err)
 				}
 			}
 		}

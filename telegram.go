@@ -24,7 +24,7 @@
  * OF SUCH DAMAGE.
  */
 
-package intl
+package TtKVC
 
 import (
 	tlg "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -89,7 +89,7 @@ func (tg *Telegram) processCommand(msg *tlg.Message) {
 		if chatExist, err := tg.DB.GetChatExist(chat); chatExist {
 			var err error
 			var offset uint
-			var files map[uint64]string
+			var files []TorrentFile
 			offset, err = tg.DB.GetCrawlOffset()
 			files, err = tg.DB.GetTorrentFilesNotReady()
 			if err == nil {
@@ -100,7 +100,7 @@ func (tg *Telegram) processCommand(msg *tlg.Message) {
 					sb := strings.Builder{}
 					if files != nil && len(files) > 0 {
 						for _, v := range files {
-							sb.WriteString(v)
+							sb.WriteString(v.Name)
 							sb.WriteRune('\n')
 						}
 					}
