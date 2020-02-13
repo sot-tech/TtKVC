@@ -36,6 +36,7 @@ import (
 	"regexp"
 	"sort"
 	tg "sot-te.ch/TGHelper"
+	"strings"
 	"time"
 )
 
@@ -82,18 +83,41 @@ func ReadConfig(path string) (*Observer, error) {
 func (cr *Observer) getState(chat int64) (string, error) {
 	var err error
 	var isMob, isAdmin bool
-	var pending, converting []string
+	var pending, converting []TorrentFile
 	if isMob, err = cr.DB.GetChatExist(chat); err != nil{
 		return "", err
 	}
 	if isAdmin, err = cr.DB.GetAdminExist(chat); err != nil{
 		return "", err
 	}
-
+	pendingSB, convertingSB := strings.Builder{}, strings.Builder{}
+	if strings.Index(cr.Telegram.Messages.State, msgFilesPending) >= 0 {
+		if pending, err = cr.DB.GetTorrentFilesPending(); err != nil{
+			return "", err
+		}
+		if pending != nil {
+			for _, val := range pending {
+				pendingSB.WriteString(val.String())
+				pendingSB.WriteRune('\n')
+			}
+		}
+	}
+	if strings.Index(cr.Telegram.Messages.State, msgFilesConverting) >= 0 {
+		if converting, err = cr.DB.GetTorrentFilesConverting(); err != nil{
+			return "", err
+		}
+		if converting != nil {
+			for _, val := range converting {
+				convertingSB.WriteString(val.String())
+				convertingSB.WriteRune('\n')
+			}
+		}
+	}
 	return formatMessage(cr.Telegram.Messages.State, map[string]interface{}{
 		msgWatch: isMob,
 		msgAdmin: isAdmin,
-
+		msgFilesPending: pendingSB.String(),
+		msgFilesConverting: convertingSB.String(),
 	}), err
 }
 
@@ -128,15 +152,24 @@ func (cr *Observer) Engage() {
 				Logger.Error(err)
 			}
 			for {
+				torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
 				for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
-					baseOffset = cr.checkTorrent(offset + i, ignorePattern)
+					var torrent *Torrent
+					baseOffset, torrent = cr.checkTorrent(offset + i, ignorePattern)
+					if torrent != nil {
+						torrents = append(torrents, torrent)
+					}
 				}
+				if len(torrents) > 0 {
+					//TODO: upload to transmission
+				}
+				//TODO: make session in async function + add telegram upload
 				if files, err := cr.DB.GetTorrentFilesPending(); err == nil {
 					if files != nil && len(files) > 0 {
 						filesToSend := cr.getReadyFiles(files)
 						if len(filesToSend) > 0 {
 							sort.Strings(filesToSend)
-							go cr.Kaltura.ProcessFiles(filesToSend)
+							go cr.Kaltura.UploadFiles(filesToSend)
 						}
 					}
 				} else {
@@ -153,10 +186,12 @@ func (cr *Observer) Engage() {
 	}
 }
 
-func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regexp) uint {
+func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regexp) (uint, *Torrent) {
+	var err error
+	var torrent *Torrent
 	Logger.Debugf("Checking offset %d", currentOffset)
 	fullUrl := fmt.Sprintf(cr.Crawler.URL, currentOffset)
-	if torrent, err := GetTorrent(fullUrl); err == nil {
+	if torrent, err = GetTorrent(fullUrl); err == nil {
 		if torrent != nil {
 			Logger.Infof("New file %s", torrent.Info.Name)
 			size := torrent.FullSize()
@@ -166,14 +201,14 @@ func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regex
 					files := torrent.Files()
 					Logger.Debugf("Adding torrent %s", torrent.Info.Name)
 					Logger.Debugf("Files: %v", files)
-					if err := cr.DB.AddTorrent(torrent.Info.Name, files); err != nil {
+					if err = cr.DB.AddTorrent(torrent.Info.Name, files); err != nil {
 						Logger.Error(err)
 					}
 				} else {
 					Logger.Infof("Torrent %s ignored", torrent.Info.Name)
 				}
 				currentOffset++
-				if err := cr.DB.UpdateCrawlOffset(currentOffset); err != nil {
+				if err = cr.DB.UpdateCrawlOffset(currentOffset); err != nil {
 					Logger.Error(err)
 				}
 			} else {
@@ -183,7 +218,7 @@ func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regex
 			Logger.Debugf("%s not a torrent", fullUrl)
 		}
 	}
-	return currentOffset
+	return currentOffset, torrent
 }
 
 func (cr *Observer) getReadyFiles(files []TorrentFile) []string {

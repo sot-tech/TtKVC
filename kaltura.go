@@ -252,7 +252,7 @@ func (kl *Kaltura) uploadMediaContent(session, name, entryId string) error {
 	return err
 }
 
-func (kl *Kaltura) ProcessFiles(files []string) {
+func (kl *Kaltura) UploadFiles(files []string) {
 	if kl.URL == "" || kl.Secret == "" || kl.UserId == "" {
 		Logger.Error("Required kaltura parameters not set")
 	} else {

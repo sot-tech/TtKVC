@@ -37,15 +37,15 @@ import (
 var Version = "0"
 
 const (
-	msgIndex        = "${index}"
-	msgErrorMsg     = "${msg}"
-	msgId           = "${id}"
-	msgName         = "${name}"
-	msgWatch        = "${watch}"
-	msgAdmin        = "${admin}"
-	msgFilesPending = "${filesp}"
+	msgIndex           = "${index}"
+	msgErrorMsg        = "${msg}"
+	msgId              = "${id}"
+	msgName            = "${name}"
+	msgWatch           = "${watch}"
+	msgAdmin           = "${admin}"
+	msgFilesPending    = "${filesp}"
 	msgFilesConverting = "${filesc}"
-	msgUrl          = "${url}"
+	msgUrl             = "${url}"
 )
 
 var Logger = logging.MustGetLogger("observer")

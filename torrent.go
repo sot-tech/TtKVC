@@ -27,7 +27,9 @@
 package TtKVC
 
 import (
+	"bytes"
 	"github.com/zeebo/bencode"
+	"io/ioutil"
 	"net/http"
 	"path/filepath"
 )
@@ -51,6 +53,7 @@ type Torrent struct {
 		PieceLength uint64 `bencode:"piece length"`
 		Pieces      []byte `bencode:"pieces"`
 	} `bencode:"info"`
+	RawData []byte `bensode:"-"`
 }
 
 func GetTorrent(url string) (*Torrent, error) {
@@ -58,9 +61,16 @@ func GetTorrent(url string) (*Torrent, error) {
 	var err error
 	if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
 		var torrent Torrent
-		err := bencode.NewDecoder(resp.Body).Decode(&torrent)
-		if err == nil {
-			res = &torrent
+		var rawData []byte
+		if rawData, err = ioutil.ReadAll(resp.Body); err == nil {
+			bb := bytes.Buffer{}
+			if _, err = bb.Write(rawData); err == nil {
+				err := bencode.NewDecoder(&bb).Decode(&torrent)
+				if err == nil {
+					torrent.RawData = rawData
+					res = &torrent
+				}
+			}
 		}
 	} else {
 		err = responseError(resp, httpErr)
@@ -82,18 +92,18 @@ func (t *Torrent) FullSize() uint64 {
 	return fullLen
 }
 
-func (t *Torrent) Files() []string{
+func (t *Torrent) Files() []string {
 	var files []string
-	if t.Info.Files != nil{
-		for _, file := range t.Info.Files{
-			if file.Path != nil{
+	if t.Info.Files != nil {
+		for _, file := range t.Info.Files {
+			if file.Path != nil {
 				allParts := []string{t.Info.Name}
 				allParts = append(allParts, file.Path...)
-				files = append(files, "/" + filepath.Join(allParts...))
+				files = append(files, "/"+filepath.Join(allParts...))
 			}
 		}
-	} else{
-		files = append(files, "/" + t.Info.Name)
+	} else {
+		files = append(files, "/"+t.Info.Name)
 	}
 	return files
 }

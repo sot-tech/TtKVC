@@ -29,6 +29,7 @@ package TtKVC
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"strconv"
 )
@@ -238,6 +239,13 @@ type TorrentFile struct {
 	Id     uint64
 	Name   string
 	Status uint8
+}
+
+func (tr *TorrentFile) String() string{
+	if tr == nil{
+		return "nil"
+	}
+	return fmt.Sprintf("Id: %d; Name: %s;", tr.Id, tr.Name)
 }
 
 func (db *Database) GetTorrentFilesByStatus(status uint8) ([]TorrentFile, error) {
