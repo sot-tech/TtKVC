@@ -188,9 +188,8 @@ func (db *Database) DelAdmin(id int64) error {
 	return db.execNoResult(delAdmin, id)
 }
 
-func (db *Database) GetTorrent(torrent string) (int64, []string, error) {
+func (db *Database) GetTorrent(torrent string) (int64, error) {
 	var torrentId int64
-	var torrentFiles []string
 	var err error
 	torrentId = -1
 	err = db.checkConnection()
@@ -201,32 +200,17 @@ func (db *Database) GetTorrent(torrent string) (int64, []string, error) {
 			defer rows.Close()
 			if rows.Next() {
 				err = rows.Scan(&torrentId)
-				if err == nil {
-					var rows *sql.Rows
-					rows, err = db.Connection.Query(selectTorrentFiles, torrentId)
-					if err == nil && rows != nil {
-						defer rows.Close()
-						for rows.Next() {
-							var element string
-							if err := rows.Scan(&element); err == nil {
-								torrentFiles = append(torrentFiles, element)
-							} else {
-								break
-							}
-						}
-					}
-				}
 			}
 		}
 	}
-	return torrentId, torrentFiles, err
+	return torrentId, err
 }
 
 func (db *Database) AddTorrent(name string, files []string) error {
 	var err error
 	if err = db.execNoResult(insertOrUpdateTorrent, name); err == nil {
 		var id int64
-		if id, _, err = db.GetTorrent(name); err == nil {
+		if id, err = db.GetTorrent(name); err == nil {
 			for _, file := range files {
 				err = db.execNoResult(insertTorrentFile, id, file)
 			}
@@ -248,9 +232,9 @@ func (tr *TorrentFile) String() string{
 	return fmt.Sprintf("Id: %d; Name: %s;", tr.Id, tr.Name)
 }
 
-func (db *Database) GetTorrentFilesByStatus(status uint8) ([]TorrentFile, error) {
+func (db *Database) GetTorrentFilesByStatus(status uint8) ([]*TorrentFile, error) {
 	var err error
-	var files []TorrentFile
+	var files []*TorrentFile
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
@@ -258,8 +242,8 @@ func (db *Database) GetTorrentFilesByStatus(status uint8) ([]TorrentFile, error)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
-				var file TorrentFile
-				if err = rows.Scan(&file); err != nil {
+				file := new(TorrentFile)
+				if err = rows.Scan(file); err != nil {
 					break
 				}
 			}
@@ -268,11 +252,11 @@ func (db *Database) GetTorrentFilesByStatus(status uint8) ([]TorrentFile, error)
 	return files, err
 }
 
-func (db *Database) GetTorrentFilesPending() ([]TorrentFile, error) {
+func (db *Database) GetTorrentFilesPending() ([]*TorrentFile, error) {
 	return db.GetTorrentFilesByStatus(filePendingStatus)
 }
 
-func (db *Database) GetTorrentFilesConverting() ([]TorrentFile, error) {
+func (db *Database) GetTorrentFilesConverting() ([]*TorrentFile, error) {
 	return db.GetTorrentFilesByStatus(fileConvertingStatus)
 }
 

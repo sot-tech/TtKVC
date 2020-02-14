@@ -148,7 +148,7 @@ func (kl *Kaltura) endSession(session string) {
 	fullUrl := kl.prepareURL(kAPISessionEnd)
 	fullUrl = fmt.Sprintf(fullUrl, session)
 	if resp, err := http.Get(fullUrl); !checkResponse(resp, err) {
-		Logger.Error(responseError(resp, err))
+		logger.Error(responseError(resp, err))
 	}
 }
 
@@ -205,31 +205,31 @@ func (kl *Kaltura) uploadMediaContent(session, name, entryId string) error {
 		defer m.Close()
 		if err == nil {
 			if err := m.WriteField(kEntryId, entryId); err != nil {
-				Logger.Error(err)
+				logger.Error(err)
 				return
 			}
 			if err := m.WriteField(kObjectTypeFiled, kUploadFileResource); err != nil {
-				Logger.Error(err)
+				logger.Error(err)
 				return
 			}
 			part, err := m.CreateFormFile(kFileDataField, filepath.Base(name))
 			if err != nil {
-				Logger.Error(err)
+				logger.Error(err)
 				return
 			}
 			file, err := os.Open(name)
 			if err != nil {
-				Logger.Error(err)
+				logger.Error(err)
 				return
 			}
 			if file != nil {
 				defer file.Close()
 				if _, err = io.Copy(part, file); err != nil {
-					Logger.Error(err)
+					logger.Error(err)
 					return
 				}
 			} else {
-				Logger.Error("File object is nil")
+				logger.Error("File object is nil")
 			}
 		}
 	}()
@@ -242,7 +242,7 @@ func (kl *Kaltura) uploadMediaContent(session, name, entryId string) error {
 			if err = jsonError(data); err == nil {
 				entry := kEntry{}
 				if err = json.Unmarshal(data, &entry); err == nil {
-					Logger.Debug(entry)
+					logger.Debug(entry)
 				}
 			}
 		}
@@ -254,7 +254,7 @@ func (kl *Kaltura) uploadMediaContent(session, name, entryId string) error {
 
 func (kl *Kaltura) UploadFiles(files []string) {
 	if kl.URL == "" || kl.Secret == "" || kl.UserId == "" {
-		Logger.Error("Required kaltura parameters not set")
+		logger.Error("Required kaltura parameters not set")
 	} else {
 		if session, err := kl.createSession(int64(len(files))); err == nil {
 			defer kl.endSession(session)
@@ -265,14 +265,14 @@ func (kl *Kaltura) UploadFiles(files []string) {
 					//msg = strings.Replace(msg, msgName, filepath.Base(f), -1)
 					//go kl.Telegram.SendMsgToAll(msg)
 					if err := kl.uploadMediaContent(session, f, entryId); err != nil {
-						Logger.Error(err)
+						logger.Error(err)
 					}
 				} else {
-					Logger.Error(err)
+					logger.Error(err)
 				}
 			}
 		} else {
-			Logger.Error(err)
+			logger.Error(err)
 		}
 	}
 }

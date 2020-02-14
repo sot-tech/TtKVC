@@ -48,7 +48,7 @@ const (
 	msgUrl             = "${url}"
 )
 
-var Logger = logging.MustGetLogger("observer")
+var logger = logging.MustGetLogger("observer")
 
 func checkResponse(resp *http.Response, httpErr error) bool {
 	return httpErr == nil && resp != nil && resp.StatusCode < 400

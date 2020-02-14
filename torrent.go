@@ -60,15 +60,15 @@ func GetTorrent(url string) (*Torrent, error) {
 	var res *Torrent
 	var err error
 	if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
-		var torrent Torrent
+		torrent := new(Torrent)
 		var rawData []byte
 		if rawData, err = ioutil.ReadAll(resp.Body); err == nil {
-			bb := bytes.Buffer{}
+			bb := new(bytes.Buffer)
 			if _, err = bb.Write(rawData); err == nil {
-				err := bencode.NewDecoder(&bb).Decode(&torrent)
+				err := bencode.NewDecoder(bb).Decode(torrent)
 				if err == nil {
 					torrent.RawData = rawData
-					res = &torrent
+					res = torrent
 				}
 			}
 		}
