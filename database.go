@@ -55,10 +55,12 @@ const (
 	selectTorrent         = "SELECT ID FROM TT_TORRENT WHERE NAME = $1"
 	insertOrUpdateTorrent = "INSERT INTO TT_TORRENT(NAME) VALUES ($1) ON CONFLICT(NAME) DO NOTHING"
 
-	selectTorrentFiles        = "SELECT NAME FROM TT_TORRENT_FILE WHERE TORRENT = $1"
-	selectTorrentFilesPending = "SELECT ID, NAME FROM TT_TORRENT_FILE WHERE READY = 0"
-	insertTorrentFile         = "INSERT INTO TT_TORRENT_FILE(TORRENT, NAME) VALUES ($1, $2) ON CONFLICT (TORRENT,NAME) DO NOTHING"
-	setTorrentFileStatus      = "UPDATE TT_TORRENT_FILE SET READY = $1 WHERE ID = $2"
+	selectTorrentMeta = "SELECT NAME, VALUE FROM TT_TORRENT_META WHERE TORRENT = $1"
+	insertTorrentMeta = "INSERT INTO TT_TORRENT_META(TORRENT, NAME, VALUE) VALUES($1, $2, $3) ON CONFLICT(TORRENT,NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
+
+	selectTorrentFilesNotReady = "SELECT ID, NAME FROM TT_TORRENT_FILE WHERE READY != 2"
+	insertTorrentFile          = "INSERT INTO TT_TORRENT_FILE(TORRENT, NAME) VALUES ($1, $2) ON CONFLICT (TORRENT,NAME) DO NOTHING"
+	setTorrentFileStatus       = "UPDATE TT_TORRENT_FILE SET READY = $1 WHERE ID = $2"
 
 	selectConfig         = "SELECT VALUE FROM TT_CONFIG WHERE NAME = $1"
 	insertOrUpdateConfig = "INSERT INTO TT_CONFIG(NAME, VALUE) VALUES ($1, $2) ON CONFLICT(NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
@@ -66,9 +68,9 @@ const (
 	confCrawlOffset = "CRAWL_OFFSET"
 	confTgOffset    = "TG_OFFSET"
 
-	filePendingStatus    = 0
-	fileConvertingStatus = 1
-	fileReadyStatus      = 2
+	FilePendingStatus    = 0
+	FileConvertingStatus = 1
+	FileReadyStatus      = 2
 )
 
 func (db *Database) checkConnection() error {
@@ -132,26 +134,7 @@ func (db *Database) getIntArray(query string, args ...interface{}) ([]int64, err
 }
 
 func (db *Database) GetChats() ([]int64, error) {
-	var err error
-	var chats []int64
-	err = db.checkConnection()
-	if err == nil {
-		var rows *sql.Rows
-		rows, err = db.Connection.Query(selectChats)
-		if err == nil && rows != nil {
-			defer rows.Close()
-			for rows.Next() {
-				var chat int64
-				err = rows.Scan(&chat)
-				if err == nil {
-					chats = append(chats, chat)
-				} else {
-					break
-				}
-			}
-		}
-	}
-	return chats, err
+	return db.getIntArray(selectChats)
 }
 
 func (db *Database) AddChat(chat int64) error {
@@ -206,39 +189,39 @@ func (db *Database) GetTorrent(torrent string) (int64, error) {
 	return torrentId, err
 }
 
-func (db *Database) AddTorrent(name string, files []string) error {
+func (db *Database) AddTorrent(name string, files []string) (int64, error) {
 	var err error
+	var id int64
 	if err = db.execNoResult(insertOrUpdateTorrent, name); err == nil {
-		var id int64
 		if id, err = db.GetTorrent(name); err == nil {
 			for _, file := range files {
 				err = db.execNoResult(insertTorrentFile, id, file)
 			}
 		}
 	}
-	return err
+	return id, err
 }
 
 type TorrentFile struct {
-	Id     uint64
+	Id     int64
 	Name   string
 	Status uint8
 }
 
-func (tr *TorrentFile) String() string{
-	if tr == nil{
+func (tr *TorrentFile) String() string {
+	if tr == nil {
 		return "nil"
 	}
-	return fmt.Sprintf("Id: %d; Name: %s;", tr.Id, tr.Name)
+	return fmt.Sprintf("Id: %d;\tName: %s;\tStatus: %d", tr.Id, tr.Name, tr.Status)
 }
 
-func (db *Database) GetTorrentFilesByStatus(status uint8) ([]*TorrentFile, error) {
+func (db *Database) GetTorrentFilesNotReady() ([]*TorrentFile, error) {
 	var err error
 	var files []*TorrentFile
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Connection.Query(selectTorrentFilesPending, status)
+		rows, err = db.Connection.Query(selectTorrentFilesNotReady)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -252,20 +235,12 @@ func (db *Database) GetTorrentFilesByStatus(status uint8) ([]*TorrentFile, error
 	return files, err
 }
 
-func (db *Database) GetTorrentFilesPending() ([]*TorrentFile, error) {
-	return db.GetTorrentFilesByStatus(filePendingStatus)
+func (db *Database) SetTorrentFileConverting(id int64) error {
+	return db.execNoResult(setTorrentFileStatus, FileConvertingStatus, id)
 }
 
-func (db *Database) GetTorrentFilesConverting() ([]*TorrentFile, error) {
-	return db.GetTorrentFilesByStatus(fileConvertingStatus)
-}
-
-func (db *Database) SetTorrentFileConverting(id uint64) error {
-	return db.execNoResult(setTorrentFileStatus, fileConvertingStatus, id)
-}
-
-func (db *Database) SetTorrentFileReady(id uint64) error {
-	return db.execNoResult(setTorrentFileStatus, fileReadyStatus, id)
+func (db *Database) SetTorrentFileReady(id int64) error {
+	return db.execNoResult(setTorrentFileStatus, FileReadyStatus, id)
 }
 
 func (db *Database) getConfigValue(name string) (string, error) {
@@ -315,6 +290,38 @@ func (db *Database) GetTgOffset() (int, error) {
 
 func (db *Database) UpdateTgOffset(offset int) error {
 	return db.updateConfigValue(confTgOffset, strconv.FormatUint(uint64(offset), 10))
+}
+
+func (db *Database) GetTorrentMeta(id int64) (map[string]string, error) {
+	var err error
+	meta := make(map[string]string)
+	err = db.checkConnection()
+	if err == nil {
+		var rows *sql.Rows
+		rows, err = db.Connection.Query(selectTorrentMeta, id)
+		if err == nil && rows != nil {
+			defer rows.Close()
+			for rows.Next() {
+				var name, value string
+				if err = rows.Scan(name, value); err == nil {
+					meta[name] = value
+				} else {
+					break
+				}
+			}
+		}
+	}
+	return meta, err
+}
+
+func (db *Database) AddTorrentMeta(id int64, meta map[string]string) error {
+	var err error
+	for k, v := range meta {
+		if err = db.execNoResult(insertTorrentMeta, id, k, v); err != nil {
+			break
+		}
+	}
+	return err
 }
 
 func (db *Database) Connect() error {

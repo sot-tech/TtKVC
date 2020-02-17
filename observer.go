@@ -29,23 +29,20 @@ package TtKVC
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	trans "github.com/hekmon/transmissionrpc"
+	"html"
 	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"sot-te.ch/HTExtractor"
 	tg "sot-te.ch/TGHelper"
 	"strings"
 	"time"
 )
-
-type ExtractAction struct {
-	Action string `json:"action"`
-	Param  string `json:"param"`
-}
 
 type Observer struct {
 	Log struct {
@@ -53,10 +50,13 @@ type Observer struct {
 		Level string `json:"level"`
 	} `json:"log"`
 	Crawler struct {
-		URL          string
-		Delay        uint   `json:"delay"`
-		Threshold    uint   `json:"threshold"`
-		IgnoreRegexp string `json:"ignoreregexp"`
+		BaseURL       string                      `json:"baseurl"`
+		ContextURL    string                      `json:"contexturl"`
+		Delay         uint                        `json:"delay"`
+		Threshold     uint                        `json:"threshold"`
+		IgnoreRegexp  string                      `json:"ignoreregexp"`
+		MetaActions   []HTExtractor.ExtractAction `json:"metaactions"`
+		MetaExtractor *HTExtractor.Extractor      `json:"-"`
 	} `json:"crawler"`
 	Transmission struct {
 		Host       string `json:"host"`
@@ -93,16 +93,16 @@ func ReadConfig(path string) (*Observer, error) {
 func (cr *Observer) getState(chat int64) (string, error) {
 	var err error
 	var isMob, isAdmin bool
-	var pending, converting []*TorrentFile
+	var pending []*TorrentFile
 	if isMob, err = cr.DB.GetChatExist(chat); err != nil {
 		return "", err
 	}
 	if isAdmin, err = cr.DB.GetAdminExist(chat); err != nil {
 		return "", err
 	}
-	pendingSB, convertingSB := strings.Builder{}, strings.Builder{}
+	pendingSB := strings.Builder{}
 	if strings.Index(cr.Telegram.Messages.State, msgFilesPending) >= 0 {
-		if pending, err = cr.DB.GetTorrentFilesPending(); err != nil {
+		if pending, err = cr.DB.GetTorrentFilesNotReady(); err != nil {
 			return "", err
 		}
 		if pending != nil {
@@ -114,24 +114,10 @@ func (cr *Observer) getState(chat int64) (string, error) {
 			}
 		}
 	}
-	if strings.Index(cr.Telegram.Messages.State, msgFilesConverting) >= 0 {
-		if converting, err = cr.DB.GetTorrentFilesConverting(); err != nil {
-			return "", err
-		}
-		if converting != nil {
-			for _, val := range converting {
-				if val != nil {
-					convertingSB.WriteString(val.String())
-					convertingSB.WriteRune('\n')
-				}
-			}
-		}
-	}
 	return formatMessage(cr.Telegram.Messages.State, map[string]interface{}{
 		msgWatch:           isMob,
 		msgAdmin:           isAdmin,
 		msgFilesPending:    pendingSB.String(),
-		msgFilesConverting: convertingSB.String(),
 	}), err
 }
 
@@ -163,49 +149,52 @@ func (cr *Observer) initTransmission() (*trans.Client, error) {
 	})
 }
 
+func (cr *Observer) initMetaExtractor() error {
+	var err error
+	if cr.Crawler.MetaExtractor == nil {
+		logger.Debug("Initiating meta extractor")
+		if cr.Crawler.MetaActions == nil {
+			err = errors.New("extract actions not set")
+		} else {
+			ex := HTExtractor.New()
+			if err = ex.Compile(cr.Crawler.MetaActions); err == nil {
+				cr.Crawler.MetaExtractor = ex
+			}
+		}
+	}
+	return err
+}
+
 func (cr *Observer) Engage() {
+	var err error
 	ignorePattern := regexp.MustCompile(cr.Crawler.IgnoreRegexp)
-	err := cr.DB.Connect()
-	if err == nil {
+	if err = cr.DB.Connect(); err == nil {
 		defer cr.DB.Close()
 		telegram := cr.initTg()
-		err = telegram.Connect(cr.Telegram.Token, -1)
-		if err == nil {
-			if err != nil {
-				logger.Error(err)
-			}
+		if err = telegram.Connect(cr.Telegram.Token, -1); err == nil {
+			var baseOffset uint
 			go telegram.HandleUpdates()
-			baseOffset, err := cr.DB.GetCrawlOffset()
-			if err != nil {
-				logger.Error(err)
-			}
-			for {
-				torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
-				for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
-					var torrent *Torrent
-					baseOffset, torrent = cr.checkTorrent(offset+i, ignorePattern)
-					if torrent != nil {
-						torrents = append(torrents, torrent)
-					}
-				}
-				if len(torrents) > 0 {
-					cr.uploadTorrents(torrents)
-				}
-				//TODO: make session in async function + add telegram upload
-				if files, err := cr.DB.GetTorrentFilesPending(); err == nil {
-					if files != nil && len(files) > 0 {
-						filesToSend := cr.getReadyFiles(files)
-						if len(filesToSend) > 0 {
-							sort.Strings(filesToSend)
-							go cr.Kaltura.UploadFiles(filesToSend)
-						}
-					}
-				} else {
+			if baseOffset, err = cr.DB.GetCrawlOffset(); err == nil {
+				if err := cr.initMetaExtractor(); err != nil {
 					logger.Error(err)
 				}
-				sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
-				logger.Debugf("Sleeping %d sec", sleepTime)
-				time.Sleep(sleepTime * time.Second)
+				for {
+					torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
+					for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
+						var torrent *Torrent
+						baseOffset, torrent = cr.checkTorrent(offset+i, ignorePattern)
+						if torrent != nil {
+							torrents = append(torrents, torrent)
+						}
+					}
+					if len(torrents) > 0 {
+						cr.uploadTorrents(torrents)
+					}
+					go cr.checkVideo()
+					sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
+					logger.Debugf("Sleeping %d sec", sleepTime)
+					time.Sleep(sleepTime * time.Second)
+				}
 			}
 		}
 	}
@@ -214,12 +203,29 @@ func (cr *Observer) Engage() {
 	}
 }
 
+func (cr *Observer) getTorrentMeta(context string) (map[string]string, error) {
+	var err error
+	var meta map[string]string
+	if cr.Crawler.MetaExtractor != nil {
+		var rawMeta map[string][]byte
+		if rawMeta, err = cr.Crawler.MetaExtractor.ExtractData(cr.Crawler.BaseURL, context); err == nil && rawMeta != nil {
+			meta = make(map[string]string, len(rawMeta))
+			for k, v := range rawMeta {
+				if k != "" {
+					meta[k] = html.EscapeString(string(v))
+				}
+			}
+		}
+	}
+	return meta, err
+}
+
 func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regexp) (uint, *Torrent) {
 	var err error
 	var torrent *Torrent
 	logger.Debugf("Checking offset %d", currentOffset)
-	fullUrl := fmt.Sprintf(cr.Crawler.URL, currentOffset)
-	if torrent, err = GetTorrent(fullUrl); err == nil {
+	fullContext := fmt.Sprintf(cr.Crawler.ContextURL, currentOffset)
+	if torrent, err = GetTorrent(cr.Crawler.BaseURL + fullContext); err == nil {
 		if torrent != nil {
 			logger.Infof("New file %s", torrent.Info.Name)
 			size := torrent.FullSize()
@@ -229,7 +235,19 @@ func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regex
 					files := torrent.Files()
 					logger.Debugf("Adding torrent %s", torrent.Info.Name)
 					logger.Debugf("Files: %v", files)
-					if err = cr.DB.AddTorrent(torrent.Info.Name, files); err != nil {
+					var id int64
+					if id, err = cr.DB.AddTorrent(torrent.Info.Name, files); err == nil {
+						var meta map[string]string
+						if meta, err = cr.DB.GetTorrentMeta(id); err == nil {
+							if meta == nil || len(meta) == 0 {
+								if meta, err = cr.getTorrentMeta(fullContext); err == nil && meta != nil {
+									logger.Debugf("Writing meta: %v", meta)
+									err = cr.DB.AddTorrentMeta(id, meta)
+								}
+							}
+						}
+					}
+					if err != nil {
 						logger.Error(err)
 					}
 				} else {
@@ -243,7 +261,7 @@ func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regex
 				logger.Errorf("Zero torrent size, offset %d", currentOffset)
 			}
 		} else {
-			logger.Debugf("%s not a torrent", fullUrl)
+			logger.Debugf("%s not a torrent", fullContext)
 		}
 	}
 	return currentOffset, torrent
@@ -305,24 +323,42 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 	}
 }
 
-func (cr *Observer) getReadyFiles(files []*TorrentFile) []string {
-	var filesToSend []string
-	for _, file := range files {
-		if file != nil {
-			fullPath := filepath.Join(cr.FilesPath, file.Name)
-			fullPath = filepath.FromSlash(fullPath)
-			if stat, err := os.Stat(fullPath); err == nil {
-				if stat == nil {
-					logger.Warningf("Unable to stat file %s", fullPath)
-				} else {
-					logger.Debugf("Found ready file %s, size: %d", stat.Name(), stat.Size())
-					filesToSend = append(filesToSend, fullPath)
-					if err := cr.DB.SetTorrentFileConverting(file.Id); err != nil {
-						logger.Error(err)
+func (cr *Observer) checkVideo() {
+	var err error
+	if err = cr.Kaltura.CreateSession(); err == nil {
+		defer cr.Kaltura.EndSession()
+		var files []*TorrentFile
+		if files, err = cr.DB.GetTorrentFilesNotReady(); err == nil && files != nil {
+			for _, file := range files {
+				if file != nil {
+					if file.Status == FilePendingStatus {
+						var err error
+						fullPath := filepath.Join(cr.FilesPath, file.Name)
+						fullPath = filepath.FromSlash(fullPath)
+						var stat os.FileInfo
+						if stat, err = os.Stat(fullPath); err == nil {
+							if stat == nil {
+								logger.Warningf("Unable to stat file %s", fullPath)
+							} else {
+								logger.Debugf("Found ready file %s, size: %d", stat.Name(), stat.Size())
+								var entryId string
+								if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath); err == nil && entryId != "" {
+									if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
+										err = cr.DB.SetTorrentFileConverting(file.Id)
+									}
+								}
+							}
+						}
+						if err != nil {
+							logger.Error(err)
+						}
 					}
 				}
 			}
 		}
 	}
-	return filesToSend
+	if err != nil {
+		logger.Error(err)
+	}
 }
+

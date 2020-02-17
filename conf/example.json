@@ -4,7 +4,8 @@
 		"level": "DEBUG"
 	},
 	"crawler": {
-		"url": "http://localhost/torrent/%d",
+		"baseurl": "http://localhost",
+		"contexturl": "torrent/%d",
 		"threshold": 10,
 		"delay": 10,
 		"ignoreregexp": ".*1080p.*|.*1080P.*"

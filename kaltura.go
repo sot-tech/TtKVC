@@ -37,7 +37,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	tg "sot-te.ch/TGHelper"
 	"strings"
 	"time"
 )
@@ -48,7 +47,7 @@ const (
 	kAPISessionEnd      = "api_v3/service/session/action/end?format=1&ks=%s"
 	kAPIMediaAdd        = "api_v3/service/media/action/add?format=1&ks=%s"
 	kAPIMediaAddContent = "api_v3/service/media/action/addContent?format=1&ks=%s"
-	kSessionTTL         = 600
+	kSessionTTL         = 1800
 	kUserSessionType    = 0
 	kVideoMediaType     = 1
 	kFileSourceType     = "1"
@@ -60,11 +59,11 @@ const (
 )
 
 type Kaltura struct {
-	URL       string    `json:"url"`
-	PartnerId uint      `json:"partnerid"`
-	UserId    string    `json:"userid"`
-	Secret    string    `json:"secret"`
-	Telegram  *tg.Telegram `json:"-"`
+	URL       string `json:"url"`
+	PartnerId uint   `json:"partnerid"`
+	UserId    string `json:"userid"`
+	Secret    string `json:"secret"`
+	session   string `json:"-"`
 }
 
 type kSession struct {
@@ -100,7 +99,7 @@ type kError struct {
 	} `json:"args"`
 }
 
-func (kl *Kaltura) prepareURL(context string) string{
+func (kl *Kaltura) prepareURL(context string) string {
 	delimiter := ""
 	if strings.LastIndexByte(kl.URL, '/') != len(kl.URL)-1 {
 		delimiter = "/"
@@ -113,7 +112,7 @@ func (kl *Kaltura) postJson(context string, obj interface{}) ([]byte, error) {
 	var data []byte
 	fullUrl := kl.prepareURL(context)
 	if data, err = json.Marshal(obj); err == nil {
-		if resp, httpErr := http.Post(fullUrl, jsonMime, bytes.NewReader(data)); checkResponse(resp, httpErr){
+		if resp, httpErr := http.Post(fullUrl, jsonMime, bytes.NewReader(data)); checkResponse(resp, httpErr) {
 			data, err = ioutil.ReadAll(resp.Body)
 		} else {
 			err = responseError(resp, httpErr)
@@ -122,40 +121,44 @@ func (kl *Kaltura) postJson(context string, obj interface{}) ([]byte, error) {
 	return data, err
 }
 
-func (kl *Kaltura) createSession(ttlMlx int64) (string, error) {
+func (kl *Kaltura) CreateSession() error {
+	if kl.session != "" {
+		kl.EndSession()
+	}
 	var err error
-	var session string
 	obj := kSession{
 		Secret:     kl.Secret,
 		UserID:     kl.UserId,
 		Type:       kUserSessionType,
 		PartnerID:  kl.PartnerId,
-		Expiry:     time.Now().Unix() + (kSessionTTL * ttlMlx),
+		Expiry:     time.Now().Unix() + kSessionTTL,
 		Privileges: "*",
 	}
 	var data []byte
 	if data, err = kl.postJson(kAPISessionStart, obj); err == nil {
 		if err = jsonError(data); err == nil {
-			session = string(data)
-			session = strings.Replace(session, "\"", "", -1)
+			kl.session = strings.Replace(string(data), "\"", "", -1)
 			err = nil
 		}
 	}
-	return session, err
+	return err
 }
 
-func (kl *Kaltura) endSession(session string) {
-	fullUrl := kl.prepareURL(kAPISessionEnd)
-	fullUrl = fmt.Sprintf(fullUrl, session)
-	if resp, err := http.Get(fullUrl); !checkResponse(resp, err) {
-		logger.Error(responseError(resp, err))
+func (kl *Kaltura) EndSession() {
+	if kl.session != "" {
+		fullUrl := kl.prepareURL(kAPISessionEnd)
+		fullUrl = fmt.Sprintf(fullUrl, kl.session)
+		if resp, err := http.Get(fullUrl); !checkResponse(resp, err) {
+			logger.Error(responseError(resp, err))
+		}
+		kl.session = ""
 	}
 }
 
-func (kl *Kaltura) createMediaEntry(session, name string) (string, error) {
+func (kl *Kaltura) CreateMediaEntry(name string) (string, error) {
 	var err error
 	var entryId string
-	fullUrl := fmt.Sprintf(kAPIMediaAdd, session)
+	fullUrl := fmt.Sprintf(kAPIMediaAdd, kl.session)
 	obj := kMediaEntry{
 		Entry: kEntry{
 			Name:       filepath.Base(name),
@@ -196,7 +199,7 @@ func jsonError(data []byte) error {
 	return err
 }
 
-func (kl *Kaltura) uploadMediaContent(session, name, entryId string) error {
+func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 	r, w := io.Pipe()
 	m := multipart.NewWriter(w)
 	var err error
@@ -234,7 +237,7 @@ func (kl *Kaltura) uploadMediaContent(session, name, entryId string) error {
 		}
 	}()
 	fullUrl := kl.prepareURL(kAPIMediaAddContent)
-	fullUrl = fmt.Sprintf(fullUrl, session)
+	fullUrl = fmt.Sprintf(fullUrl, kl.session)
 	var resp *http.Response
 	if resp, err = http.Post(fullUrl, m.FormDataContentType(), r); checkResponse(resp, err) {
 		var data []byte
@@ -256,23 +259,18 @@ func (kl *Kaltura) UploadFiles(files []string) {
 	if kl.URL == "" || kl.Secret == "" || kl.UserId == "" {
 		logger.Error("Required kaltura parameters not set")
 	} else {
-		if session, err := kl.createSession(int64(len(files))); err == nil {
-			defer kl.endSession(session)
-			for _, f := range files {
-				if entryId, err := kl.createMediaEntry(session, f); err == nil {
-					//msg := kl.Telegram.Announce
-					//msg = strings.Replace(msg, msgId, entryId, -1)
-					//msg = strings.Replace(msg, msgName, filepath.Base(f), -1)
-					//go kl.Telegram.SendMsgToAll(msg)
-					if err := kl.uploadMediaContent(session, f, entryId); err != nil {
-						logger.Error(err)
-					}
-				} else {
+		for _, f := range files {
+			if entryId, err := kl.CreateMediaEntry(f); err == nil {
+				//msg := kl.Telegram.Announce
+				//msg = strings.Replace(msg, msgId, entryId, -1)
+				//msg = strings.Replace(msg, msgName, filepath.Base(f), -1)
+				//go kl.Telegram.SendMsgToAll(msg)
+				if err := kl.UploadMediaContent(f, entryId); err != nil {
 					logger.Error(err)
 				}
+			} else {
+				logger.Error(err)
 			}
-		} else {
-			logger.Error(err)
 		}
 	}
 }

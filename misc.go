@@ -44,7 +44,6 @@ const (
 	msgWatch           = "${watch}"
 	msgAdmin           = "${admin}"
 	msgFilesPending    = "${filesp}"
-	msgFilesConverting = "${filesc}"
 	msgUrl             = "${url}"
 )
 
