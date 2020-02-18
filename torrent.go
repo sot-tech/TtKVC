@@ -60,6 +60,7 @@ func GetTorrent(url string) (*Torrent, error) {
 	var res *Torrent
 	var err error
 	if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
+		defer resp.Body.Close()
 		torrent := new(Torrent)
 		var rawData []byte
 		if rawData, err = ioutil.ReadAll(resp.Body); err == nil {

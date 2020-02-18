@@ -43,8 +43,7 @@ const (
 	msgName            = "${name}"
 	msgWatch           = "${watch}"
 	msgAdmin           = "${admin}"
-	msgFilesPending    = "${filesp}"
-	msgUrl             = "${url}"
+	msgFilesPending    = "${files}"
 )
 
 var logger = logging.MustGetLogger("observer")

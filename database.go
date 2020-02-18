@@ -58,9 +58,10 @@ const (
 	selectTorrentMeta = "SELECT NAME, VALUE FROM TT_TORRENT_META WHERE TORRENT = $1"
 	insertTorrentMeta = "INSERT INTO TT_TORRENT_META(TORRENT, NAME, VALUE) VALUES($1, $2, $3) ON CONFLICT(TORRENT,NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
 
-	selectTorrentFilesNotReady = "SELECT ID, NAME FROM TT_TORRENT_FILE WHERE READY != 2"
+	selectTorrentFilesNotReady = "SELECT ID, NAME, READY, ENTRY_ID, TORRENT FROM TT_TORRENT_FILE WHERE READY != $1"
 	insertTorrentFile          = "INSERT INTO TT_TORRENT_FILE(TORRENT, NAME) VALUES ($1, $2) ON CONFLICT (TORRENT,NAME) DO NOTHING"
 	setTorrentFileStatus       = "UPDATE TT_TORRENT_FILE SET READY = $1 WHERE ID = $2"
+	setTorrentFileEntryId      = "UPDATE TT_TORRENT_FILE SET ENTRY_ID = $1 WHERE ID = $2"
 
 	selectConfig         = "SELECT VALUE FROM TT_CONFIG WHERE NAME = $1"
 	insertOrUpdateConfig = "INSERT INTO TT_CONFIG(NAME, VALUE) VALUES ($1, $2) ON CONFLICT(NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
@@ -203,9 +204,11 @@ func (db *Database) AddTorrent(name string, files []string) (int64, error) {
 }
 
 type TorrentFile struct {
-	Id     int64
-	Name   string
-	Status uint8
+	Id      int64
+	Name    string
+	Status  uint8
+	EntryId string
+	Torrent int64
 }
 
 func (tr *TorrentFile) String() string {
@@ -221,7 +224,7 @@ func (db *Database) GetTorrentFilesNotReady() ([]*TorrentFile, error) {
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
-		rows, err = db.Connection.Query(selectTorrentFilesNotReady)
+		rows, err = db.Connection.Query(selectTorrentFilesNotReady, FileReadyStatus)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -241,6 +244,10 @@ func (db *Database) SetTorrentFileConverting(id int64) error {
 
 func (db *Database) SetTorrentFileReady(id int64) error {
 	return db.execNoResult(setTorrentFileStatus, FileReadyStatus, id)
+}
+
+func (db *Database) SetTorrentFileEntryId(id int64, entryId string) error {
+	return db.execNoResult(setTorrentFileEntryId, id, entryId)
 }
 
 func (db *Database) getConfigValue(name string) (string, error) {

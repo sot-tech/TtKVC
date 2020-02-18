@@ -31,10 +31,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 	trans "github.com/hekmon/transmissionrpc"
 	"html"
 	"io/ioutil"
 	"math/rand"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -77,6 +79,7 @@ type Observer struct {
 			KUpload string `json:"kupload"`
 			TUpload string `json:"tupload"`
 		} `json:"msg"`
+		Client *tg.Telegram `json:"-"`
 	} `json:"telegram"`
 	Kaltura Kaltura `json:"kaltura"`
 }
@@ -115,13 +118,13 @@ func (cr *Observer) getState(chat int64) (string, error) {
 		}
 	}
 	return formatMessage(cr.Telegram.Messages.State, map[string]interface{}{
-		msgWatch:           isMob,
-		msgAdmin:           isAdmin,
-		msgFilesPending:    pendingSB.String(),
+		msgWatch:        isMob,
+		msgAdmin:        isAdmin,
+		msgFilesPending: pendingSB.String(),
 	}), err
 }
 
-func (cr *Observer) initTg() *tg.Telegram {
+func (cr *Observer) initTg() {
 	telegram := tg.New(cr.Telegram.OTPSeed)
 	telegram.Messages = cr.Telegram.Messages.TGMessages
 	telegram.BackendFunctions = tg.TGBackendFunction{
@@ -135,7 +138,7 @@ func (cr *Observer) initTg() *tg.Telegram {
 		AdminRm:    cr.DB.DelAdmin,
 		State:      cr.getState,
 	}
-	return telegram
+	cr.Telegram.Client = telegram
 }
 
 func (cr *Observer) initTransmission() (*trans.Client, error) {
@@ -170,10 +173,10 @@ func (cr *Observer) Engage() {
 	ignorePattern := regexp.MustCompile(cr.Crawler.IgnoreRegexp)
 	if err = cr.DB.Connect(); err == nil {
 		defer cr.DB.Close()
-		telegram := cr.initTg()
-		if err = telegram.Connect(cr.Telegram.Token, -1); err == nil {
+		cr.initTg()
+		if err = cr.Telegram.Client.Connect(cr.Telegram.Token, -1); err == nil {
 			var baseOffset uint
-			go telegram.HandleUpdates()
+			go cr.Telegram.Client.HandleUpdates()
 			if baseOffset, err = cr.DB.GetCrawlOffset(); err == nil {
 				if err := cr.initMetaExtractor(); err != nil {
 					logger.Error(err)
@@ -344,7 +347,42 @@ func (cr *Observer) checkVideo() {
 								var entryId string
 								if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath); err == nil && entryId != "" {
 									if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
-										err = cr.DB.SetTorrentFileConverting(file.Id)
+										if err = cr.DB.SetTorrentFileConverting(file.Id); err == nil {
+											if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
+												var admins []int64
+												if admins, err = cr.DB.GetAdmins(); err == nil {
+													cr.Telegram.Client.SendMsg(formatMessage(cr.Telegram.Messages.KUpload,
+														map[string]interface{}{
+															msgName: filepath.Base(file.Name),
+															msgId:   entryId,
+														}), admins, true)
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+						if err != nil {
+							logger.Error(err)
+						}
+					} else if file.Status == FileConvertingStatus {
+						var err error
+						if file.EntryId == "" {
+							err = errors.New("entry id not set for file " + file.String())
+						} else {
+							var entry KMediaEntry
+							if entry, err = cr.Kaltura.GetMediaEntry(file.EntryId); err == nil {
+								if entry.Status == KEntryStatusReady {
+									if err = cr.DB.SetTorrentFileReady(file.Id); err == nil {
+										var flavors KFlavorAssetSearchResult
+										if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
+											if flavors.Objects != nil && len(flavors.Objects) > 0 {
+												cr.sendTelegramVideo(file, entry, flavors.Objects[0])
+											} else {
+												err = errors.New("flavors for entry " + file.EntryId + " not found")
+											}
+										}
 									}
 								}
 							}
@@ -362,3 +400,33 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
+func (cr *Observer) sendTelegramVideo(file *TorrentFile, entry KMediaEntry, flavor KFlavorAsset) {
+	var err error
+	var videoUrl *url.URL
+	if videoUrl, err = url.Parse(entry.DownloadURL); err == nil {
+		if videoUrl != nil && videoUrl.Host != "" {
+			var meta map[string]string
+			if meta, err = cr.DB.GetTorrentMeta(file.Torrent); err == nil {
+				var chats []int64
+				if chats, err = cr.DB.GetChats(); err == nil {
+					replacements := make(map[string]interface{}, len(meta))
+					for k, v := range meta {
+						replacements[k] = v
+					}
+					msg := formatMessage(cr.Telegram.Messages.TUpload, replacements)
+					video := tgbotapi.BaseFile{
+						File:     *videoUrl,
+						MimeType: "video/" + flavor.FileExt,
+						FileSize: int(flavor.Size * 1024),
+					}
+					cr.Telegram.Client.SendVideo(msg, video, chats, true)
+				}
+			}
+		} else{
+			err = errors.New("invalid url " + entry.DownloadURL)
+		}
+	}
+	if err != nil {
+		logger.Error(err)
+	}
+}

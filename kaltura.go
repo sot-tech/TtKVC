@@ -45,17 +45,16 @@ const (
 	jsonMime            = "application/json"
 	kAPISessionStart    = "api_v3/service/session/action/start?format=1"
 	kAPISessionEnd      = "api_v3/service/session/action/end?format=1&ks=%s"
+	kAPIMediaGet        = "api_v3/service/media/action/get?format=1&ks=%s"
 	kAPIMediaAdd        = "api_v3/service/media/action/add?format=1&ks=%s"
+	kAPIMediaInfoList   = "api_v3/service/mediaInfo/action/list?format=1&ks=%s"
 	kAPIMediaAddContent = "api_v3/service/media/action/addContent?format=1&ks=%s"
+	kAPIFlavorsList     = "api_v3/service/flavorAsset/action/List?format=1&ks=%s"
 	kSessionTTL         = 1800
 	kUserSessionType    = 0
 	kVideoMediaType     = 1
 	kFileSourceType     = "1"
-	kMediaEntryType     = "KalturaMediaEntry"
-	kObjectTypeFiled    = "resource:objectType"
-	kFileDataField      = "resource:fileData"
-	kUploadFileResource = "KalturaUploadedFileResource"
-	kEntryId            = "entryId"
+	KEntryStatusReady   = "2"
 )
 
 type Kaltura struct {
@@ -66,7 +65,7 @@ type Kaltura struct {
 	session   string `json:"-"`
 }
 
-type kSession struct {
+type KSession struct {
 	Secret     string `json:"secret"`
 	UserID     string `json:"userId"`
 	Type       uint   `json:"type"`
@@ -75,21 +74,62 @@ type kSession struct {
 	Privileges string `json:"privileges"`
 }
 
-type kEntry struct {
-	Id         string `json:"id,omitempty"`
-	Name       string `json:"name"`
-	UserId     string `json:"userId"`
-	CreatorId  string `json:"creatorId"`
-	ObjectType string `json:"objectType"`
+type KObject struct {
+	Id          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	ObjectType  string `json:"objectType,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type KFlavorAssetSearchResult struct {
+	KObject
+	TotalCount uint64         `json:"totalCount"`
+	Objects    []KFlavorAsset `json:"objects"`
+}
+
+type KFilter struct {
+	Filter interface{} `json:"filter"`
+}
+
+type KBaseEntry struct {
+	KObject
+	UserId      string `json:"userId"`
+	CreatorId   string `json:"creatorId"`
+	Status      string `json:"status"`
+	DownloadURL string `json:"downloadUrl"`
+}
+
+type KMediaEntry struct {
+	KBaseEntry
 	MediaType  uint   `json:"mediaType"`
 	SourceType string `json:"sourceType"`
 }
 
-type kMediaEntry struct {
-	Entry kEntry `json:"entry"`
+type KFlavorAsset struct {
+	KObject
+	FlavorParamsID  int64   `json:"flavorParamsId"`
+	Width           uint    `json:"width"`
+	Height          uint    `json:"height"`
+	Bitrate         uint    `json:"bitrate"`
+	FrameRate       float64 `json:"frameRate"`
+	IsOriginal      bool    `json:"isOriginal"`
+	IsWeb           bool    `json:"isWeb"`
+	ContainerFormat string  `json:"containerFormat"`
+	VideoCodecID    string  `json:"videoCodecId"`
+	Status          int     `json:"status"`
+	Language        string  `json:"language"`
+	IsDefault       bool    `json:"isDefault"`
+	EntryID         string  `json:"entryId"`
+	PartnerID       uint    `json:"partnerId"`
+	Version         string  `json:"version"`
+	Size            uint64  `json:"size"`
+	Tags            string  `json:"tags"`
+	FileExt         string  `json:"fileExt"`
+	CreatedAt       int64   `json:"createdAt"`
+	UpdatedAt       int64   `json:"updatedAt"`
 }
 
-type kError struct {
+type KError struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	ObjectType string `json:"objectType"`
@@ -113,6 +153,7 @@ func (kl *Kaltura) postJson(context string, obj interface{}) ([]byte, error) {
 	fullUrl := kl.prepareURL(context)
 	if data, err = json.Marshal(obj); err == nil {
 		if resp, httpErr := http.Post(fullUrl, jsonMime, bytes.NewReader(data)); checkResponse(resp, httpErr) {
+			defer resp.Body.Close()
 			data, err = ioutil.ReadAll(resp.Body)
 		} else {
 			err = responseError(resp, httpErr)
@@ -126,7 +167,7 @@ func (kl *Kaltura) CreateSession() error {
 		kl.EndSession()
 	}
 	var err error
-	obj := kSession{
+	obj := KSession{
 		Secret:     kl.Secret,
 		UserID:     kl.UserId,
 		Type:       kUserSessionType,
@@ -155,40 +196,80 @@ func (kl *Kaltura) EndSession() {
 	}
 }
 
+type kFlavorByEntryFilter struct {
+	KObject
+	EntryId string `json:"entryIdEqual"`
+}
+
+func (kl *Kaltura) kSend(context string, send interface{}, result interface{}) error {
+	var err error
+	if kl.session == "" {
+		return errors.New("empty session")
+	}
+	fullContext := fmt.Sprintf(context, kl.session)
+	var data []byte
+	if data, err = kl.postJson(fullContext, send); err == nil {
+		if err = json.Unmarshal(data, result); err != nil {
+			if jsonErr := jsonError(data); jsonErr != nil {
+				err = jsonErr
+			}
+		}
+	}
+	return err
+}
+
+func (kl *Kaltura) GetMediaEntryFlavorAssets(id string) (KFlavorAssetSearchResult, error) {
+	var err error
+	var res KFlavorAssetSearchResult
+	obj := KFilter{Filter: kFlavorByEntryFilter{
+		KObject: KObject{
+			ObjectType: "KalturaAssetFilter",
+		},
+		EntryId: id,
+	}}
+	err = kl.kSend(kAPIFlavorsList, obj, &res)
+	return res, err
+}
+
+func (kl *Kaltura) GetMediaEntry(id string) (KMediaEntry, error) {
+	var err error
+	var entry KMediaEntry
+	obj := KObject{Id: id}
+	err = kl.kSend(kAPIMediaGet, obj, &entry)
+	return entry, err
+}
+
 func (kl *Kaltura) CreateMediaEntry(name string) (string, error) {
 	var err error
+	var entry KMediaEntry
 	var entryId string
-	fullUrl := fmt.Sprintf(kAPIMediaAdd, kl.session)
-	obj := kMediaEntry{
-		Entry: kEntry{
-			Name:       filepath.Base(name),
-			UserId:     kl.UserId,
-			CreatorId:  kl.UserId,
-			ObjectType: kMediaEntryType,
+	obj := map[string]interface{}{
+		"entry": KMediaEntry{
+			KBaseEntry: KBaseEntry{
+				KObject: KObject{
+					Name:       filepath.Base(name),
+					ObjectType: "KalturaMediaEntry",
+				},
+				UserId:    kl.UserId,
+				CreatorId: kl.UserId,
+			},
 			MediaType:  kVideoMediaType,
 			SourceType: kFileSourceType,
 		},
 	}
-	var data []byte
-	if data, err = kl.postJson(fullUrl, obj); err == nil {
-		entry := kEntry{}
-		if err = json.Unmarshal(data, &entry); err == nil {
-			entryId = entry.Id
+	if err = kl.kSend(kAPIMediaAdd, obj, &entry); err == nil {
+		if entry.Id == "" {
+			err = errors.New("unable to get entry id")
 		} else {
-			if err = jsonError(data); err == nil {
-				err = errors.New("Unknown response: " + string(data))
-			}
+			entryId = entry.Id
 		}
-	}
-	if entryId == "" {
-		err = errors.New("unable to get entry id")
 	}
 	return entryId, err
 }
 
 func jsonError(data []byte) error {
 	var err error
-	outErr := kError{}
+	outErr := KError{}
 	if err = json.Unmarshal(data, &outErr); err == nil {
 		if outErr.Code != "" {
 			err = errors.New(outErr.ObjectType + ":" + outErr.Message)
@@ -200,22 +281,26 @@ func jsonError(data []byte) error {
 }
 
 func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
+	if kl.session == "" {
+		return errors.New("empty session")
+	}
 	r, w := io.Pipe()
+	defer r.Close()
 	m := multipart.NewWriter(w)
 	var err error
 	go func() {
 		defer w.Close()
 		defer m.Close()
 		if err == nil {
-			if err := m.WriteField(kEntryId, entryId); err != nil {
+			if err := m.WriteField("entryId", entryId); err != nil {
 				logger.Error(err)
 				return
 			}
-			if err := m.WriteField(kObjectTypeFiled, kUploadFileResource); err != nil {
+			if err := m.WriteField("resource:objectType", "KalturaUploadedFileResource"); err != nil {
 				logger.Error(err)
 				return
 			}
-			part, err := m.CreateFormFile(kFileDataField, filepath.Base(name))
+			part, err := m.CreateFormFile("resource:fileData", filepath.Base(name))
 			if err != nil {
 				logger.Error(err)
 				return
@@ -240,10 +325,11 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 	fullUrl = fmt.Sprintf(fullUrl, kl.session)
 	var resp *http.Response
 	if resp, err = http.Post(fullUrl, m.FormDataContentType(), r); checkResponse(resp, err) {
+		defer resp.Body.Close()
 		var data []byte
 		if data, err = ioutil.ReadAll(resp.Body); err == nil {
 			if err = jsonError(data); err == nil {
-				entry := kEntry{}
+				entry := KMediaEntry{}
 				if err = json.Unmarshal(data, &entry); err == nil {
 					logger.Debug(entry)
 				}
@@ -253,24 +339,4 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 		err = responseError(resp, err)
 	}
 	return err
-}
-
-func (kl *Kaltura) UploadFiles(files []string) {
-	if kl.URL == "" || kl.Secret == "" || kl.UserId == "" {
-		logger.Error("Required kaltura parameters not set")
-	} else {
-		for _, f := range files {
-			if entryId, err := kl.CreateMediaEntry(f); err == nil {
-				//msg := kl.Telegram.Announce
-				//msg = strings.Replace(msg, msgId, entryId, -1)
-				//msg = strings.Replace(msg, msgName, filepath.Base(f), -1)
-				//go kl.Telegram.SendMsgToAll(msg)
-				if err := kl.UploadMediaContent(f, entryId); err != nil {
-					logger.Error(err)
-				}
-			} else {
-				logger.Error(err)
-			}
-		}
-	}
 }

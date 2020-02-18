@@ -77,4 +77,5 @@ func main() {
 		waiter <- true
 	}()
 	<-waiter
+	close(waiter)
 }
