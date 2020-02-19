@@ -47,14 +47,14 @@ const (
 	kAPISessionEnd      = "api_v3/service/session/action/end?format=1&ks=%s"
 	kAPIMediaGet        = "api_v3/service/media/action/get?format=1&ks=%s"
 	kAPIMediaAdd        = "api_v3/service/media/action/add?format=1&ks=%s"
-	kAPIMediaInfoList   = "api_v3/service/mediaInfo/action/list?format=1&ks=%s"
 	kAPIMediaAddContent = "api_v3/service/media/action/addContent?format=1&ks=%s"
 	kAPIFlavorsList     = "api_v3/service/flavorAsset/action/List?format=1&ks=%s"
 	kSessionTTL         = 1800
 	kUserSessionType    = 0
 	kVideoMediaType     = 1
 	kFileSourceType     = "1"
-	KEntryStatusReady   = "2"
+	KEntryStatusReady   = 2
+	kEntryIdField       = "entryId"
 )
 
 type Kaltura struct {
@@ -95,7 +95,7 @@ type KBaseEntry struct {
 	KObject
 	UserId      string `json:"userId"`
 	CreatorId   string `json:"creatorId"`
-	Status      string `json:"status"`
+	Status      int    `json:"status"`
 	DownloadURL string `json:"downloadUrl"`
 }
 
@@ -209,10 +209,8 @@ func (kl *Kaltura) kSend(context string, send interface{}, result interface{}) e
 	fullContext := fmt.Sprintf(context, kl.session)
 	var data []byte
 	if data, err = kl.postJson(fullContext, send); err == nil {
-		if err = json.Unmarshal(data, result); err != nil {
-			if jsonErr := jsonError(data); jsonErr != nil {
-				err = jsonErr
-			}
+		if err = jsonError(data); err == nil {
+			err = json.Unmarshal(data, result)
 		}
 	}
 	return err
@@ -234,7 +232,7 @@ func (kl *Kaltura) GetMediaEntryFlavorAssets(id string) (KFlavorAssetSearchResul
 func (kl *Kaltura) GetMediaEntry(id string) (KMediaEntry, error) {
 	var err error
 	var entry KMediaEntry
-	obj := KObject{Id: id}
+	obj := map[string]string{kEntryIdField: id}
 	err = kl.kSend(kAPIMediaGet, obj, &entry)
 	return entry, err
 }
@@ -271,7 +269,7 @@ func jsonError(data []byte) error {
 	var err error
 	outErr := KError{}
 	if err = json.Unmarshal(data, &outErr); err == nil {
-		if outErr.Code != "" {
+		if strings.Contains(outErr.ObjectType, "Exception") || outErr.Code != "" {
 			err = errors.New(outErr.ObjectType + ":" + outErr.Message)
 		}
 	} else {
@@ -292,7 +290,7 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 		defer w.Close()
 		defer m.Close()
 		if err == nil {
-			if err := m.WriteField("entryId", entryId); err != nil {
+			if err := m.WriteField(kEntryIdField, entryId); err != nil {
 				logger.Error(err)
 				return
 			}

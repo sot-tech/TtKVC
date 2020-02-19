@@ -37,16 +37,21 @@ import (
 var Version = "0"
 
 const (
-	msgIndex           = "${index}"
-	msgErrorMsg        = "${msg}"
-	msgId              = "${id}"
-	msgName            = "${name}"
-	msgWatch           = "${watch}"
-	msgAdmin           = "${admin}"
-	msgFilesPending    = "${files}"
+	pIndex        = "${index}"
+	pMsg          = "${msg}"
+	pId           = "${id}"
+	pName         = "${name}"
+	pWatch        = "${watch}"
+	pAdmin        = "${admin}"
+	pFilesPending = "${files}"
+	pVideoUrl     = "${videourl}"
 )
 
 var logger = logging.MustGetLogger("observer")
+
+func isEmpty(s string) bool{
+	return len(s) == 0
+}
 
 func checkResponse(resp *http.Response, httpErr error) bool {
 	return httpErr == nil && resp != nil && resp.StatusCode < 400
@@ -57,7 +62,7 @@ func responseError(resp *http.Response, httpErr error) error {
 	if httpErr != nil {
 		err = httpErr
 	} else {
-		errMsg := "kaltura: "
+		errMsg := "http: "
 		if resp == nil {
 			errMsg += "empty response"
 		} else {

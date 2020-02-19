@@ -8,7 +8,37 @@
 		"contexturl": "torrent/%d",
 		"threshold": 10,
 		"delay": 10,
-		"ignoreregexp": ".*1080p.*|.*1080P.*"
+		"ignoreregexp": ".*1080p.*|.*1080P.*",
+		"metaactions": [
+			{
+				"action": "go",
+				"param": "/torrent/all"
+			},
+			{
+				"action": "extract",
+				"param": "<p class=\"catalog_info_name\">.*?<a .*?href=\"(?P<url>.*?)\".*?>"
+			},
+			{
+				"action": "store",
+				"param": ""
+			},
+			{
+				"action": "go",
+				"param": "${arg}"
+			},
+			{
+				"action": "findFirst",
+				"param": "<div class=\"release_torrent\">.*?<a class=\"button bbk\" href=\"\\Q${search}\\E\">"
+			},
+			{
+				"action": "extract",
+				"param": "<div class=\"main_title\">.*?<span>(?P<name>.*?)<\\/span>|<div id=\"release_main_data\">.*?<div class=\"release_reln\">.*?<span>(?P<name_en>.*?)<\\/span>.*?<\\/div>"
+			},
+			{
+				"action": "store",
+				"param": ""
+			}
+		]
 	},
 	"kaltura": {
 		"url": "http://localhost",
@@ -33,7 +63,19 @@
 			"state": "Next index: ${index}\nPending files:\n```\n${files}\n```",
 			"kupload": "File `${name}` upload started.\nEntry id: `${id}`",
 			"tupload": "Telegram upload started"
-		}
+		},
+		"video": {
+			"upload": true,
+			"sizethreshold": 52427776,
+			"customuploader": [
+				"/usr/sbin/execname",
+				"-chat",
+				"${id}",
+				"-url",
+				"${videourl}",
+				"-msg",
+				"${msg}"
+			]
 	},
 	"db": {
 		"connection": "conf/example.sqlite"

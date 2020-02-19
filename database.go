@@ -58,7 +58,8 @@ const (
 	selectTorrentMeta = "SELECT NAME, VALUE FROM TT_TORRENT_META WHERE TORRENT = $1"
 	insertTorrentMeta = "INSERT INTO TT_TORRENT_META(TORRENT, NAME, VALUE) VALUES($1, $2, $3) ON CONFLICT(TORRENT,NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
 
-	selectTorrentFilesNotReady = "SELECT ID, NAME, READY, ENTRY_ID, TORRENT FROM TT_TORRENT_FILE WHERE READY != $1"
+	selectTorrentFilesNotReady = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY FROM TT_TORRENT_FILE WHERE READY != $1"
+	selectTorrentFileIndex     = "SELECT IND FROM (SELECT ID, NAME, ROW_NUMBER() OVER(ORDER BY NAME) AS IND FROM TT_TORRENT_FILE WHERE TORRENT = $1) WHERE ID = $2"
 	insertTorrentFile          = "INSERT INTO TT_TORRENT_FILE(TORRENT, NAME) VALUES ($1, $2) ON CONFLICT (TORRENT,NAME) DO NOTHING"
 	setTorrentFileStatus       = "UPDATE TT_TORRENT_FILE SET READY = $1 WHERE ID = $2"
 	setTorrentFileEntryId      = "UPDATE TT_TORRENT_FILE SET ENTRY_ID = $1 WHERE ID = $2"
@@ -205,10 +206,10 @@ func (db *Database) AddTorrent(name string, files []string) (int64, error) {
 
 type TorrentFile struct {
 	Id      int64
+	Torrent int64
 	Name    string
 	Status  uint8
 	EntryId string
-	Torrent int64
 }
 
 func (tr *TorrentFile) String() string {
@@ -218,9 +219,9 @@ func (tr *TorrentFile) String() string {
 	return fmt.Sprintf("Id: %d;\tName: %s;\tStatus: %d", tr.Id, tr.Name, tr.Status)
 }
 
-func (db *Database) GetTorrentFilesNotReady() ([]*TorrentFile, error) {
+func (db *Database) GetTorrentFilesNotReady() ([]TorrentFile, error) {
 	var err error
-	var files []*TorrentFile
+	var files []TorrentFile
 	err = db.checkConnection()
 	if err == nil {
 		var rows *sql.Rows
@@ -228,14 +229,27 @@ func (db *Database) GetTorrentFilesNotReady() ([]*TorrentFile, error) {
 		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
-				file := new(TorrentFile)
-				if err = rows.Scan(file); err != nil {
+				file := TorrentFile{}
+				if err = rows.Scan(&file.Id, &file.Torrent, &file.Name, &file.EntryId, &file.Status); err == nil {
+					files = append(files, file)
+				} else{
+					files = []TorrentFile{}
 					break
 				}
 			}
 		}
 	}
 	return files, err
+}
+
+func (db *Database) GetTorrentFileIndex(torrent, id int64) (int64, error) {
+	var err error
+	var index int64
+	var tmp []int64
+	if tmp, err = db.getIntArray(selectTorrentFileIndex, torrent, id); err == nil && len(tmp) > 0{
+		index = tmp[0]
+	}
+	return index, err
 }
 
 func (db *Database) SetTorrentFileConverting(id int64) error {
@@ -310,7 +324,7 @@ func (db *Database) GetTorrentMeta(id int64) (map[string]string, error) {
 			defer rows.Close()
 			for rows.Next() {
 				var name, value string
-				if err = rows.Scan(name, value); err == nil {
+				if err = rows.Scan(&name, &value); err == nil {
 					meta[name] = value
 				} else {
 					break
