@@ -28,22 +28,23 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/op/go-logging"
 	"io"
 	"os"
+	"os/signal"
 	"sot-te.ch/TtKVC"
+	"syscall"
 )
 
 func main() {
+	var confFile string
+	flag.StringVar(&confFile, "c", "conf/ttkvc.json", "configuration file")
 	flag.Parse()
-	args := flag.Args()
 	logger := logging.MustGetLogger("main")
-	if len(args) == 0 {
-		logger.Fatal("Observer file not set")
+	if len(confFile) == 0 {
+		logger.Fatal("Configuration not set")
 	}
-	filename := args[0]
-	crawler, err := TtKVC.ReadConfig(filename)
+	crawler, err := TtKVC.ReadConfig(confFile)
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -66,16 +67,17 @@ func main() {
 		}
 		backend.SetLevel(level, "")
 		logging.SetBackend(backend)
-	} else{
+	} else {
 		println(err)
 	}
-
-	waiter := make(chan bool)
-	go func() {
-		fmt.Printf("Starting TtKVCv%s\n", TtKVC.Version)
-		crawler.Engage()
-		waiter <- true
-	}()
-	<-waiter
-	close(waiter)
+	logger.Infof("Starting TtKVCv%s", TtKVC.Version)
+	if err := crawler.Init(); err == nil {
+		go crawler.Engage()
+		ch := make(chan os.Signal, 2)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		<-ch
+	} else {
+		logger.Fatal(err)
+		os.Exit(1)
+	}
 }

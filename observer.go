@@ -31,19 +31,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	trans "github.com/hekmon/transmissionrpc"
-	"github.com/sot-tech/telegram-bot-api"
+	tr "github.com/hekmon/transmissionrpc"
 	"html"
-	"io"
 	"io/ioutil"
+	"math"
 	"math/rand"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sot-te.ch/HTExtractor"
-	tg "sot-te.ch/TGHelper"
+	tg "sot-te.ch/MTHelper"
 	"strconv"
 	"strings"
 	"time"
@@ -64,33 +61,38 @@ type Observer struct {
 		MetaExtractor *HTExtractor.Extractor      `json:"-"`
 	} `json:"crawler"`
 	Transmission struct {
-		Host       string `json:"host"`
-		Port       uint16 `json:"port"`
-		Login      string `json:"login"`
-		Password   string `json:"password"`
-		Path       string `json:"path"`
-		Encryption bool   `json:"encryption"`
-		Client     *trans.Client
+		Host       string     `json:"host"`
+		Port       uint16     `json:"port"`
+		Login      string     `json:"login"`
+		Password   string     `json:"password"`
+		Path       string     `json:"path"`
+		Encryption bool       `json:"encryption"`
+		Client     *tr.Client `json:"-"`
 	} `json:"transmission"`
 	FilesPath string   `json:"filespath"`
 	DB        Database `json:"db"`
 	Telegram  struct {
-		Token    string `json:"token"`
-		OTPSeed  string `json:"otpseed"`
-		Messages struct {
+		ApiId     string `json:"apiid"`
+		ApiHash   string `json:"apihash"`
+		BotToken  string `json:"bottoken"`
+		DBPath    string `json:"dbpath"`
+		FileStore string `json:"filestorepath"`
+		LogFile   string `json:"logfile"`
+		OTPSeed   string `json:"otpseed"`
+		Messages  struct {
 			tg.TGMessages
 			State   string `json:"state"`
 			KUpload string `json:"kupload"`
 			TUpload string `json:"tupload"`
 		} `json:"msg"`
 		Video struct {
-			Upload         bool     `json:"upload"`
-			SizeThreshold  uint64   `json:"sizethreshold"`
-			CustomUploader []string `json:"customuploader"`
+			Upload   bool   `json:"upload"`
+			TempPath string `json:"temppath"`
 		} `json:"video"`
 		Client *tg.Telegram `json:"-"`
 	} `json:"telegram"`
-	Kaltura Kaltura `json:"kaltura"`
+	Kaltura       Kaltura        `json:"kaltura"`
+	ignorePattern *regexp.Regexp `json:"-"`
 }
 
 func ReadConfig(path string) (*Observer, error) {
@@ -131,9 +133,10 @@ func (cr *Observer) getState(chat int64) (string, error) {
 	}), err
 }
 
-func (cr *Observer) initTg() {
+func (cr *Observer) InitTg() error {
 	logger.Debug("Initiating telegram bot")
-	telegram := tg.New(cr.Telegram.OTPSeed)
+	tg.SetupMtLog(cr.Telegram.LogFile, tg.MtLogWarning)
+	telegram := tg.New(cr.Telegram.ApiId, cr.Telegram.ApiHash, cr.Telegram.DBPath, cr.Telegram.FileStore, cr.Telegram.OTPSeed)
 	telegram.Messages = cr.Telegram.Messages.TGMessages
 	telegram.BackendFunctions = tg.TGBackendFunction{
 		GetOffset:  cr.DB.GetTgOffset,
@@ -146,16 +149,30 @@ func (cr *Observer) initTg() {
 		AdminRm:    cr.DB.DelAdmin,
 		State:      cr.getState,
 	}
-	cr.Telegram.Client = telegram
-	logger.Debug("Telegram bot init complete")
+	var tries int
+	authFunc := func(_ string) (string, error){
+		if tries < 5{
+			tries++
+			return cr.Telegram.BotToken, nil
+		}
+		return "", errors.New("too many auth tries")
+	}
+	if err := telegram.Login(authFunc, 10); err == nil {
+		cr.Telegram.Client = telegram
+		tries = math.MinInt16
+		logger.Debug("Telegram bot init complete")
+		return nil
+	} else {
+		return err
+	}
 }
 
-func (cr *Observer) initTransmission() error {
+func (cr *Observer) InitTransmission() error {
 	var err error
 	logger.Debug("Initiating transmission rpc")
 	if !isEmpty(cr.Transmission.Host) || cr.Transmission.Port > 0 {
-		var t *trans.Client
-		if t, err = trans.New(cr.Transmission.Host, cr.Transmission.Login, cr.Transmission.Password, &trans.AdvancedConfig{
+		var t *tr.Client
+		if t, err = tr.New(cr.Transmission.Host, cr.Transmission.Login, cr.Transmission.Password, &tr.AdvancedConfig{
 			HTTPS: cr.Transmission.Encryption,
 			Port:  cr.Transmission.Port,
 		}); err == nil {
@@ -168,11 +185,11 @@ func (cr *Observer) initTransmission() error {
 	return err
 }
 
-func (cr *Observer) initMetaExtractor() error {
+func (cr *Observer) InitMetaExtractor() error {
 	var err error
 	if cr.Crawler.MetaExtractor == nil {
 		logger.Debug("Initiating meta extractor")
-		if cr.Crawler.MetaActions == nil {
+		if len(cr.Crawler.MetaActions) == 0 {
 			err = errors.New("extract actions not set")
 		} else {
 			ex := HTExtractor.New()
@@ -185,44 +202,51 @@ func (cr *Observer) initMetaExtractor() error {
 	return err
 }
 
+func (cr *Observer) Init() error {
+	var err error
+	if cr.ignorePattern, err = regexp.Compile(cr.Crawler.IgnoreRegexp); err != nil {
+		return err
+	}
+	if err = cr.DB.Connect(); err != nil {
+		return err
+	}
+	if err = cr.InitTg(); err != nil {
+		return err
+	}
+	if err = cr.InitMetaExtractor(); err != nil {
+		logger.Error(err)
+		err = nil
+	}
+	if err = cr.InitTransmission(); err != nil {
+		logger.Error(err)
+		err = nil
+	}
+	return nil
+}
+
 func (cr *Observer) Engage() {
 	var err error
-	ignorePattern := regexp.MustCompile(cr.Crawler.IgnoreRegexp)
-	if err = cr.DB.Connect(); err == nil {
-		defer cr.DB.Close()
-		cr.initTg()
-		if err = cr.Telegram.Client.Connect(cr.Telegram.Token, -1); err == nil {
-			var baseOffset uint
-			go cr.Telegram.Client.HandleUpdates()
-			if baseOffset, err = cr.DB.GetCrawlOffset(); err == nil {
-				if err := cr.initMetaExtractor(); err != nil {
-					logger.Error(err)
-				}
-				if err := cr.initTransmission(); err != nil {
-					logger.Error(err)
-				}
-				for {
-					torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
-					for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
-						var torrent *Torrent
-						baseOffset, torrent = cr.checkTorrent(offset+i, ignorePattern)
-						if torrent != nil {
-							torrents = append(torrents, torrent)
-						}
-					}
-					if len(torrents) > 0 {
-						cr.uploadTorrents(torrents)
-					}
-					go cr.checkVideo()
-					sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
-					logger.Debugf("Sleeping %d sec", sleepTime)
-					time.Sleep(sleepTime * time.Second)
+	defer cr.DB.Close()
+	var baseOffset uint
+	cr.Telegram.Client.HandleUpdates()
+	if baseOffset, err = cr.DB.GetCrawlOffset(); err == nil {
+		for {
+			torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
+			for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
+				var torrent *Torrent
+				baseOffset, torrent = cr.checkTorrent(offset + i)
+				if torrent != nil {
+					torrents = append(torrents, torrent)
 				}
 			}
+			if len(torrents) > 0 {
+				cr.uploadTorrents(torrents)
+			}
+			go cr.checkVideo()
+			sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
+			logger.Debugf("Sleeping %d sec", sleepTime)
+			time.Sleep(sleepTime * time.Second)
 		}
-	}
-	if err != nil {
-		logger.Fatal(err)
 	}
 }
 
@@ -243,7 +267,7 @@ func (cr *Observer) getTorrentMeta(context string) (map[string]string, error) {
 	return meta, err
 }
 
-func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regexp) (uint, *Torrent) {
+func (cr *Observer) checkTorrent(currentOffset uint) (uint, *Torrent) {
 	var err error
 	var torrent *Torrent
 	logger.Debugf("Checking offset %d", currentOffset)
@@ -254,7 +278,7 @@ func (cr *Observer) checkTorrent(currentOffset uint, ignorePattern *regexp.Regex
 			size := torrent.FullSize()
 			logger.Infof("New torrent size %d", size)
 			if size > 0 {
-				if !ignorePattern.MatchString(torrent.Info.Name) {
+				if !cr.ignorePattern.MatchString(torrent.Info.Name) {
 					files := torrent.Files()
 					logger.Debugf("Adding torrent %s", torrent.Info.Name)
 					logger.Debugf("Files: %v", files)
@@ -307,7 +331,7 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 					}
 				}
 				if len(torrentsToRm) > 0 {
-					if err := cr.Transmission.Client.TorrentRemove(&trans.TorrentRemovePayload{
+					if err := cr.Transmission.Client.TorrentRemove(&tr.TorrentRemovePayload{
 						IDs:             torrentsToRm,
 						DeleteLocalData: false,
 					}); err == nil {
@@ -323,7 +347,7 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 		falsePtr := new(bool)
 		for _, newTorrent := range newTorrents {
 			b64 := base64.StdEncoding.EncodeToString(newTorrent.RawData)
-			if addedTorrent, err := cr.Transmission.Client.TorrentAdd(&trans.TorrentAddPayload{
+			if addedTorrent, err := cr.Transmission.Client.TorrentAdd(&tr.TorrentAddPayload{
 				DownloadDir: &cr.Transmission.Path,
 				MetaInfo:    &b64,
 				Paused:      falsePtr,
@@ -428,69 +452,23 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 			}
 			replacements := make(map[string]interface{}, len(meta)+2)
 			for k, v := range meta {
-				replacements["${" + k + "}"] = v
+				replacements["${"+k+"}"] = v
 			}
 			replacements[pVideoUrl] = entry.DownloadURL
 			replacements[pIndex] = strconv.FormatInt(index, 10)
 			msg := formatMessage(cr.Telegram.Messages.TUpload, replacements)
 			if cr.Telegram.Video.Upload {
-				if flavor.Size*1024 < cr.Telegram.Video.SizeThreshold {
-					r, w := io.Pipe()
-					defer r.Close()
-					go func() {
-						defer w.Close()
-						if err == nil {
-							if resp, httpErr := http.Get(entry.DownloadURL); checkResponse(resp, httpErr) {
-								defer resp.Body.Close()
-								_, err = io.Copy(w, resp.Body)
-							} else {
-								err = responseError(resp, httpErr)
-							}
-						}
-					}()
-					video := tgbotapi.BaseFile{
-						File:     r,
-						MimeType: "video/" + flavor.FileExt,
-						FileSize: int(flavor.Size * 1024),
+				var tmpVideoFileName string
+				if tmpVideoFileName, err = downloadToDirectory(cr.Telegram.Video.TempPath, entry.DownloadURL, flavor.FileExt);
+					err == nil {
+					defer os.Remove(tmpVideoFileName)
+					video := tg.MediaParams{
+						Path:      tmpVideoFileName,
+						Width:     int32(flavor.Width),
+						Height:    int32(flavor.Height),
+						Streaming: true,
 					}
-					cr.Telegram.Client.SendVideo(msg, video, chats, true)
-				} else if len(cr.Telegram.Video.CustomUploader) > 1 {
-					logger.Debugf("Using custom uploader %v", cr.Telegram.Video.CustomUploader)
-					if len(chats) > 0 {
-						firstChat := chats[0]
-						anotherChats := chats[1:]
-						cmd := cr.Telegram.Video.CustomUploader[0]
-						args := make([]string, len(cr.Telegram.Video.CustomUploader)-1)
-						copy(args, cr.Telegram.Video.CustomUploader[1:])
-						for i := 0; i < len(args); i++ {
-							switch args[i] {
-							case pVideoUrl:
-								args[i] = strings.ReplaceAll(args[i], pVideoUrl, entry.DownloadURL)
-							case pId:
-								args[i] = strings.ReplaceAll(args[i], pId, strconv.FormatInt(firstChat, 10))
-							case pMsg:
-								args[i] = strings.ReplaceAll(args[i], pMsg, msg)
-							}
-						}
-						if proc := exec.Command(cmd, args...); proc != nil {
-							var stdout []byte
-							if stdout, err = proc.Output(); err == nil {
-								if videoId := string(stdout); !isEmpty(videoId) {
-									video := tgbotapi.BaseFile{
-										FileID:      videoId,
-										UseExisting: true,
-									}
-									cr.Telegram.Client.SendVideo(msg, video, anotherChats, true)
-								} else {
-									err = errors.New("no video_id got from custom uploader")
-								}
-							}
-						} else {
-							err = errors.New("unable to create process for " + cmd)
-						}
-					} else {
-						logger.Warning("Custom uploader not set, video file is too big")
-					}
+					cr.Telegram.Client.SendVideo(video, msg, chats, true)
 				}
 			} else {
 				cr.Telegram.Client.SendMsg(msg, chats, true)

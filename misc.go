@@ -30,7 +30,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/op/go-logging"
+	"io"
+	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -38,7 +41,6 @@ var Version = "0"
 
 const (
 	pIndex        = "${index}"
-	pMsg          = "${msg}"
 	pId           = "${id}"
 	pName         = "${name}"
 	pWatch        = "${watch}"
@@ -82,4 +84,21 @@ func formatMessage(template string, values map[string]interface{}) string {
 		template = strings.NewReplacer(kv...).Replace(template)
 	}
 	return template
+}
+
+func downloadToDirectory(path, url, ext string) (string, error){
+	var err error
+	var tmpFileName string
+	var tmpFile *os.File
+	if tmpFile, err = ioutil.TempFile(path, "*."+ext); err == nil {
+		tmpFileName = tmpFile.Name()
+		defer tmpFile.Close()
+		if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
+			defer resp.Body.Close()
+			_, err = io.Copy(tmpFile, resp.Body)
+		} else {
+			err = responseError(resp, httpErr)
+		}
+	}
+	return tmpFileName, err
 }

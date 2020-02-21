@@ -93,10 +93,11 @@ type KFilter struct {
 
 type KBaseEntry struct {
 	KObject
-	UserId      string `json:"userId"`
-	CreatorId   string `json:"creatorId"`
-	Status      int    `json:"status"`
-	DownloadURL string `json:"downloadUrl"`
+	UserId       string `json:"userId"`
+	CreatorId    string `json:"creatorId"`
+	Status       int    `json:"status"`
+	DownloadURL  string `json:"downloadUrl"`
+	ThumbnailUrl string `json:"thumbnailUrl"`
 }
 
 type KMediaEntry struct {

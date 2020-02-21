@@ -40,14 +40,27 @@
 			}
 		]
 	},
+	"transmission": {
+		"host": "",
+		"port": 0,
+		"login": "",
+		"password": "",
+		"path": "",
+		"encryption": false
+	},
 	"kaltura": {
 		"url": "http://localhost",
-		"partnerid" : 100,
+		"partnerid": 100,
 		"userid": "user@localhost.localdomain",
 		"secret": "abcdef1234567890"
 	},
 	"telegram": {
-		"token": "123456:1234567890abcdef",
+		"apiid": "123456",
+		"apihash": "abcdefg1234567890",
+		"bottoken": "12345:abcdef1234567890",
+		"dbpath": "/some/dir",
+		"filestorepath": "/another/dir",
+		"logfile": "/log/dir.log",
 		"otpseed": "BASE32LONGLONGSEEDSTRING",
 		"msg": {
 			"error": "Operation error: ${msg}",
@@ -66,16 +79,8 @@
 		},
 		"video": {
 			"upload": true,
-			"sizethreshold": 52427776,
-			"customuploader": [
-				"/usr/sbin/execname",
-				"-chat",
-				"${id}",
-				"-url",
-				"${videourl}",
-				"-msg",
-				"${msg}"
-			]
+			"temppath": "/tmp"
+		}
 	},
 	"db": {
 		"connection": "conf/example.sqlite"
