@@ -230,7 +230,6 @@ func (db *Database) GetTorrentFile(id int64) (TorrentFile, error) {
 		if err == nil && rows != nil {
 			defer rows.Close()
 			if rows.Next() {
-				file := TorrentFile{}
 				err = rows.Scan(&file.Id, &file.Torrent, &file.Name, &file.EntryId, &file.Status)
 			}
 		}

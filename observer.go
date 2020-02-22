@@ -433,18 +433,16 @@ func (cr *Observer) checkVideo() {
 							err = errors.New("entry id not set for file " + file.String())
 						} else {
 							var entry KMediaEntry
-							if file, err = cr.DB.GetTorrentFile(file.Id); err == nil {
-								if entry, err = cr.Kaltura.GetMediaEntry(file.EntryId); err == nil {
-									if entry.Status == KEntryStatusReady {
-										if err = cr.DB.SetTorrentFileStatus(file.Id, FileReadyStatus); err == nil {
-											var flavors KFlavorAssetSearchResult
-											if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
-												if len(flavors.Objects) == 0 {
-													err = errors.New("flavors for entry " + file.EntryId + " not found")
-												} else {
-													cr.sendTelegramVideo(file, entry, flavors.Objects[0])
-													cr.Telegram.Client.RmCommand(fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id))
-												}
+							if entry, err = cr.Kaltura.GetMediaEntry(file.EntryId); err == nil {
+								if entry.Status == KEntryStatusReady {
+									if err = cr.DB.SetTorrentFileStatus(file.Id, FileReadyStatus); err == nil {
+										var flavors KFlavorAssetSearchResult
+										if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
+											if len(flavors.Objects) == 0 {
+												err = errors.New("flavors for entry " + file.EntryId + " not found")
+											} else {
+												cr.sendTelegramVideo(file, entry, flavors.Objects[0])
+												cr.Telegram.Client.RmCommand(fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id))
 											}
 										}
 									}
@@ -464,12 +462,12 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
-func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, cmd, _ string) error{
+func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, cmd, _ string) error {
 	var err error
 	var id int64
-	if _, err = fmt.Sscanf(cmd, tCmdSwitchIgnorePrefix, &id); err == nil{
+	if _, err = fmt.Sscanf(cmd, tCmdSwitchIgnorePrefix, &id); err == nil {
 		var file TorrentFile
-		if file, err = cr.DB.GetTorrentFile(id); err == nil{
+		if file, err = cr.DB.GetTorrentFile(id); err == nil {
 			err = cr.switchFileReadyStatus(file, []int64{chat})
 		}
 	}
