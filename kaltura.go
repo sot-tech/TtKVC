@@ -49,6 +49,7 @@ const (
 	kAPIMediaAdd        = "api_v3/service/media/action/add?format=1&ks=%s"
 	kAPIMediaAddContent = "api_v3/service/media/action/addContent?format=1&ks=%s"
 	kAPIFlavorsList     = "api_v3/service/flavorAsset/action/List?format=1&ks=%s"
+	kAPIThumbnailContextFormat = "%s/width/%d/height/%d"
 	kSessionTTL         = 1800
 	kUserSessionType    = 0
 	kVideoMediaType     = 1
@@ -83,8 +84,8 @@ type KObject struct {
 
 type KFlavorAssetSearchResult struct {
 	KObject
-	TotalCount uint64         `json:"totalCount"`
-	Objects    []KFlavorAsset `json:"objects"`
+	TotalCount uint64         `json:"totalCount,omitempty"`
+	Objects    []KFlavorAsset `json:"objects,omitempty"`
 }
 
 type KFilter struct {
@@ -93,17 +94,17 @@ type KFilter struct {
 
 type KBaseEntry struct {
 	KObject
-	UserId       string `json:"userId"`
-	CreatorId    string `json:"creatorId"`
-	Status       int    `json:"status"`
-	DownloadURL  string `json:"downloadUrl"`
-	ThumbnailUrl string `json:"thumbnailUrl"`
+	UserId       string `json:"userId,omitempty"`
+	CreatorId    string `json:"creatorId,omitempty"`
+	Status       int    `json:"status,omitempty"`
+	DownloadURL  string `json:"downloadUrl,omitempty"`
+	ThumbnailUrl string `json:"thumbnailUrl,omitempty"`
 }
 
 type KMediaEntry struct {
 	KBaseEntry
-	MediaType  uint   `json:"mediaType"`
-	SourceType string `json:"sourceType"`
+	MediaType  uint   `json:"mediaType,omitempty"`
+	SourceType string `json:"sourceType,omitempty"`
 }
 
 type KFlavorAsset struct {
@@ -131,13 +132,10 @@ type KFlavorAsset struct {
 }
 
 type KError struct {
-	Code       string `json:"code"`
-	Message    string `json:"message"`
-	ObjectType string `json:"objectType"`
-	Args       []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"args"`
+	Code       string                 `json:"code"`
+	Message    string                 `json:"message"`
+	ObjectType string                 `json:"objectType"`
+	Args       map[string]interface{} `json:"args"`
 }
 
 func (kl *Kaltura) prepareURL(context string) string {
@@ -338,4 +336,12 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 		err = responseError(resp, err)
 	}
 	return err
+}
+
+func FormatThumbnailURL(plainUrl string, width, height uint) string{
+	if width == 0 || height == 0{
+		return plainUrl
+	} else{
+		return fmt.Sprintf(kAPIThumbnailContextFormat, plainUrl, width, height)
+	}
 }

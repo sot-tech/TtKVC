@@ -58,6 +58,7 @@ const (
 	selectTorrentMeta = "SELECT NAME, VALUE FROM TT_TORRENT_META WHERE TORRENT = $1"
 	insertTorrentMeta = "INSERT INTO TT_TORRENT_META(TORRENT, NAME, VALUE) VALUES($1, $2, $3) ON CONFLICT(TORRENT,NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
 
+	selectTorrentFile = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY FROM TT_TORRENT_FILE WHERE ID = $1"
 	selectTorrentFilesNotReady = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY FROM TT_TORRENT_FILE WHERE READY != $1"
 	selectTorrentFileIndex     = "SELECT IND FROM (SELECT ID, NAME, ROW_NUMBER() OVER(ORDER BY NAME) AS IND FROM TT_TORRENT_FILE WHERE TORRENT = $1) WHERE ID = $2"
 	insertTorrentFile          = "INSERT INTO TT_TORRENT_FILE(TORRENT, NAME) VALUES ($1, $2) ON CONFLICT (TORRENT,NAME) DO NOTHING"
@@ -219,6 +220,24 @@ func (tr *TorrentFile) String() string {
 	return fmt.Sprintf("Id: %d;\tName: %s;\tStatus: %d", tr.Id, tr.Name, tr.Status)
 }
 
+func (db *Database) GetTorrentFile(id int64) (TorrentFile, error) {
+	var err error
+	var file TorrentFile
+	err = db.checkConnection()
+	if err == nil {
+		var rows *sql.Rows
+		rows, err = db.Connection.Query(selectTorrentFile, id)
+		if err == nil && rows != nil {
+			defer rows.Close()
+			if rows.Next() {
+				file := TorrentFile{}
+				err = rows.Scan(&file.Id, &file.Torrent, &file.Name, &file.EntryId, &file.Status)
+			}
+		}
+	}
+	return file, err
+}
+
 func (db *Database) GetTorrentFilesNotReady() ([]TorrentFile, error) {
 	var err error
 	var files []TorrentFile
@@ -252,16 +271,12 @@ func (db *Database) GetTorrentFileIndex(torrent, id int64) (int64, error) {
 	return index, err
 }
 
-func (db *Database) SetTorrentFileConverting(id int64) error {
-	return db.execNoResult(setTorrentFileStatus, FileConvertingStatus, id)
-}
-
-func (db *Database) SetTorrentFileReady(id int64) error {
-	return db.execNoResult(setTorrentFileStatus, FileReadyStatus, id)
+func (db *Database) SetTorrentFileStatus(id int64, status uint8) error {
+	return db.execNoResult(setTorrentFileStatus, status, id)
 }
 
 func (db *Database) SetTorrentFileEntryId(id int64, entryId string) error {
-	return db.execNoResult(setTorrentFileEntryId, id, entryId)
+	return db.execNoResult(setTorrentFileEntryId, entryId, id)
 }
 
 func (db *Database) getConfigValue(name string) (string, error) {
@@ -359,3 +374,4 @@ func (db *Database) Close() {
 		_ = db.Connection.Close()
 	}
 }
+

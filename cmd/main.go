@@ -28,6 +28,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/op/go-logging"
 	"io"
 	"os"
@@ -42,11 +43,13 @@ func main() {
 	flag.Parse()
 	logger := logging.MustGetLogger("main")
 	if len(confFile) == 0 {
-		logger.Fatal("Configuration not set")
+		fmt.Println("Configuration not set")
+		os.Exit(1)
 	}
 	crawler, err := TtKVC.ReadConfig(confFile)
 	if err != nil {
-		logger.Fatal(err)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 
 	var outputWriter io.Writer
@@ -70,7 +73,7 @@ func main() {
 	} else {
 		println(err)
 	}
-	logger.Infof("Starting TtKVCv%s", TtKVC.Version)
+	logger.Info("Starting TtKVC", TtKVC.Version)
 	if err := crawler.Init(); err == nil {
 		go crawler.Engage()
 		ch := make(chan os.Signal, 2)

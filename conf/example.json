@@ -74,6 +74,9 @@
 				"unknown": "Unknown command"
 			},
 			"state": "Next index: ${index}\nPending files:\n```\n${files}\n```",
+			"ok": "ok",
+			"videoignored": "File ${name} WILL be uploaded to telegram, to dont upload send ${ignorecmd}",
+			"videoforced": "File ${name} WILL NOT be uploaded to telegram, to upload send ${ignorecmd}",
 			"kupload": "File `${name}` upload started.\nEntry id: `${id}`",
 			"tupload": "Telegram upload started"
 		},

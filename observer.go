@@ -43,6 +43,7 @@ import (
 	tg "sot-te.ch/MTHelper"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -81,9 +82,11 @@ type Observer struct {
 		OTPSeed   string `json:"otpseed"`
 		Messages  struct {
 			tg.TGMessages
-			State   string `json:"state"`
-			KUpload string `json:"kupload"`
-			TUpload string `json:"tupload"`
+			State        string `json:"state"`
+			VideoIgnored string `json:"videoignored"`
+			VideoForced  string `json:"videoforced"`
+			KUpload      string `json:"kupload"`
+			TUpload      string `json:"tupload"`
 		} `json:"msg"`
 		Video struct {
 			Upload   bool   `json:"upload"`
@@ -150,8 +153,8 @@ func (cr *Observer) InitTg() error {
 		State:      cr.getState,
 	}
 	var tries int
-	authFunc := func(_ string) (string, error){
-		if tries < 5{
+	authFunc := func(_ string) (string, error) {
+		if tries < 5 {
 			tries++
 			return cr.Telegram.BotToken, nil
 		}
@@ -181,7 +184,7 @@ func (cr *Observer) InitTransmission() error {
 	} else {
 		err = errors.New("invalid transmission connection data")
 	}
-	logger.Debugf("Transmission rpc init complete, err %v", err)
+	logger.Debug("Transmission rpc init complete, err", err)
 	return err
 }
 
@@ -197,7 +200,7 @@ func (cr *Observer) InitMetaExtractor() error {
 				cr.Crawler.MetaExtractor = ex
 			}
 		}
-		logger.Debugf("Meta extractor init complete, err %v", err)
+		logger.Debug("Meta extractor init complete, err ", err)
 	}
 	return err
 }
@@ -242,7 +245,7 @@ func (cr *Observer) Engage() {
 			if len(torrents) > 0 {
 				cr.uploadTorrents(torrents)
 			}
-			go cr.checkVideo()
+			cr.checkVideo()
 			sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
 			logger.Debugf("Sleeping %d sec", sleepTime)
 			time.Sleep(sleepTime * time.Second)
@@ -270,25 +273,25 @@ func (cr *Observer) getTorrentMeta(context string) (map[string]string, error) {
 func (cr *Observer) checkTorrent(currentOffset uint) (uint, *Torrent) {
 	var err error
 	var torrent *Torrent
-	logger.Debugf("Checking offset %d", currentOffset)
+	logger.Debug("Checking offset ", currentOffset)
 	fullContext := fmt.Sprintf(cr.Crawler.ContextURL, currentOffset)
 	if torrent, err = GetTorrent(cr.Crawler.BaseURL + fullContext); err == nil {
 		if torrent != nil {
-			logger.Infof("New file %s", torrent.Info.Name)
+			logger.Info("New file", torrent.Info.Name)
 			size := torrent.FullSize()
-			logger.Infof("New torrent size %d", size)
+			logger.Info("New torrent size", size)
 			if size > 0 {
 				if !cr.ignorePattern.MatchString(torrent.Info.Name) {
 					files := torrent.Files()
-					logger.Debugf("Adding torrent %s", torrent.Info.Name)
-					logger.Debugf("Files: %v", files)
+					logger.Debug("Adding torrent", torrent.Info.Name)
+					logger.Debug("Files: ", files)
 					var id int64
 					if id, err = cr.DB.AddTorrent(torrent.Info.Name, files); err == nil {
 						var meta map[string]string
 						if meta, err = cr.DB.GetTorrentMeta(id); err == nil {
 							if len(meta) == 0 {
 								if meta, err = cr.getTorrentMeta(fullContext); err == nil && len(meta) > 0 {
-									logger.Debugf("Writing meta: %v", meta)
+									logger.Debug("Writing meta: ", meta)
 									err = cr.DB.AddTorrentMeta(id, meta)
 								}
 							}
@@ -305,7 +308,7 @@ func (cr *Observer) checkTorrent(currentOffset uint) (uint, *Torrent) {
 					logger.Error(err)
 				}
 			} else {
-				logger.Errorf("Zero torrent size, offset %d", currentOffset)
+				logger.Error("Zero torrent size, offset", currentOffset)
 			}
 		} else {
 			logger.Debugf("%s not a torrent", fullContext)
@@ -324,7 +327,7 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 						existingTorrent.ID != nil {
 						for _, newTorrent := range newTorrents {
 							if *(existingTorrent.Name) == newTorrent.Info.Name {
-								logger.Debugf("Torrent %v marked as toDelete", *(existingTorrent))
+								logger.Debug("Torrent marked as toDelete", *(existingTorrent.Name))
 								torrentsToRm = append(torrentsToRm, *existingTorrent.ID)
 							}
 						}
@@ -335,7 +338,7 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 						IDs:             torrentsToRm,
 						DeleteLocalData: false,
 					}); err == nil {
-						logger.Debugf("Torrents %v deleted", torrentsToRm)
+						logger.Debug("Torrents deleted", torrentsToRm)
 					} else {
 						logger.Error(err)
 					}
@@ -353,9 +356,9 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 				Paused:      falsePtr,
 			}); err == nil {
 				if addedTorrent != nil {
-					logger.Debugf("Added torrent")
+					logger.Debug("Added torrent", *(addedTorrent.Name))
 				} else {
-					logger.Warningf("AddTorrent undefined result")
+					logger.Warning("AddTorrent undefined result", newTorrent.Info.Name)
 				}
 			} else {
 				logger.Error(err)
@@ -379,23 +382,41 @@ func (cr *Observer) checkVideo() {
 						fullPath := filepath.Join(cr.FilesPath, file.Name)
 						fullPath = filepath.FromSlash(fullPath)
 						var stat os.FileInfo
-						if stat, err = os.Stat(fullPath); err == nil {
+						stat, err = os.Stat(fullPath)
+						switch osErr := err.(type) {
+						case *os.PathError:
+							if osErr.Err == syscall.EINTR {
+								stat, err = os.Stat(fullPath)
+							}
+						}
+						if err == nil {
 							if stat == nil {
-								logger.Warningf("Unable to stat file %s", fullPath)
+								logger.Warning("Unable to stat file", fullPath)
 							} else {
-								logger.Debugf("Found ready file %s, size: %d", stat.Name(), stat.Size())
+								fName := stat.Name()
+								logger.Debugf("Found ready file %s, size: %d", fName, stat.Size())
 								var entryId string
 								if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath); err == nil && !isEmpty(entryId) {
+									logger.Debug("Uploading file", fName)
 									if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
-										if err = cr.DB.SetTorrentFileConverting(file.Id); err == nil {
-											if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
-												var admins []int64
-												if admins, err = cr.DB.GetAdmins(); err == nil {
-													cr.Telegram.Client.SendMsg(formatMessage(cr.Telegram.Messages.KUpload,
-														map[string]interface{}{
-															pName: filepath.Base(file.Name),
-															pId:   entryId,
-														}), admins, true)
+										logger.Debug("Updating file entry id", entryId)
+										if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
+											var admins []int64
+											if admins, err = cr.DB.GetAdmins(); err == nil {
+												cr.Telegram.Client.SendMsg(formatMessage(cr.Telegram.Messages.KUpload,
+													map[string]interface{}{
+														pName:  filepath.Base(file.Name),
+														pId:    entryId,
+														pIndex: strconv.FormatInt(file.Id, 10),
+													}), admins, true)
+												if cr.Telegram.Video.Upload {
+													file.Status = FileReadyStatus
+												} else {
+													file.Status = FileConvertingStatus
+												}
+												if err = cr.switchFileReadyStatus(file, admins); err == nil {
+													err = cr.Telegram.Client.AddCommand(fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id),
+														cr.cmdSwitchFileReadyStatus)
 												}
 											}
 										}
@@ -412,15 +433,18 @@ func (cr *Observer) checkVideo() {
 							err = errors.New("entry id not set for file " + file.String())
 						} else {
 							var entry KMediaEntry
-							if entry, err = cr.Kaltura.GetMediaEntry(file.EntryId); err == nil {
-								if entry.Status == KEntryStatusReady {
-									if err = cr.DB.SetTorrentFileReady(file.Id); err == nil {
-										var flavors KFlavorAssetSearchResult
-										if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
-											if len(flavors.Objects) > 0 {
-												cr.sendTelegramVideo(file, entry, flavors.Objects[0])
-											} else {
-												err = errors.New("flavors for entry " + file.EntryId + " not found")
+							if file, err = cr.DB.GetTorrentFile(file.Id); err == nil {
+								if entry, err = cr.Kaltura.GetMediaEntry(file.EntryId); err == nil {
+									if entry.Status == KEntryStatusReady {
+										if err = cr.DB.SetTorrentFileStatus(file.Id, FileReadyStatus); err == nil {
+											var flavors KFlavorAssetSearchResult
+											if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
+												if len(flavors.Objects) == 0 {
+													err = errors.New("flavors for entry " + file.EntryId + " not found")
+												} else {
+													cr.sendTelegramVideo(file, entry, flavors.Objects[0])
+													cr.Telegram.Client.RmCommand(fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id))
+												}
 											}
 										}
 									}
@@ -440,6 +464,40 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
+func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, cmd, _ string) error{
+	var err error
+	var id int64
+	if _, err = fmt.Sscanf(cmd, tCmdSwitchIgnorePrefix, &id); err == nil{
+		var file TorrentFile
+		if file, err = cr.DB.GetTorrentFile(id); err == nil{
+			err = cr.switchFileReadyStatus(file, []int64{chat})
+		}
+	}
+	return err
+}
+
+func (cr *Observer) switchFileReadyStatus(file TorrentFile, chats []int64) error {
+	var err error
+	var fileStatus uint8
+	var ignoreMsg string
+	ignoreCmd := fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id)
+	if file.Status == FileReadyStatus {
+		ignoreMsg = cr.Telegram.Messages.VideoForced
+		fileStatus = FileConvertingStatus
+	} else {
+		ignoreMsg = cr.Telegram.Messages.VideoIgnored
+		fileStatus = FileReadyStatus
+	}
+	if err = cr.DB.SetTorrentFileStatus(file.Id, fileStatus); err == nil {
+		cr.Telegram.Client.SendMsg(formatMessage(ignoreMsg,
+			map[string]interface{}{
+				pName:   filepath.Base(file.Name),
+				pIgnore: ignoreCmd,
+			}), chats, true)
+	}
+	return err
+}
+
 func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavor KFlavorAsset) {
 	var err error
 	var meta map[string]string
@@ -457,21 +515,32 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 			replacements[pVideoUrl] = entry.DownloadURL
 			replacements[pIndex] = strconv.FormatInt(index, 10)
 			msg := formatMessage(cr.Telegram.Messages.TUpload, replacements)
-			if cr.Telegram.Video.Upload {
-				var tmpVideoFileName string
-				if tmpVideoFileName, err = downloadToDirectory(cr.Telegram.Video.TempPath, entry.DownloadURL, flavor.FileExt);
+			var tmpVideoFileName string
+			if tmpVideoFileName, err = downloadToDirectory(cr.Telegram.Video.TempPath, entry.DownloadURL, flavor.FileExt);
+				err == nil {
+				defer os.Remove(tmpVideoFileName)
+				var thumb *tg.MediaParams
+				if tmpThumbFileName, err := downloadToDirectory(cr.Telegram.Video.TempPath,
+					FormatThumbnailURL(entry.ThumbnailUrl, flavor.Width, flavor.Height), "jpg");
 					err == nil {
-					defer os.Remove(tmpVideoFileName)
-					video := tg.MediaParams{
-						Path:      tmpVideoFileName,
+					defer os.Remove(tmpThumbFileName)
+					thumb = &tg.MediaParams{
+						Path:      tmpThumbFileName,
 						Width:     int32(flavor.Width),
-						Height:    int32(flavor.Height),
-						Streaming: true,
+						Height:    int32(flavor.Width),
+						Streaming: false,
 					}
-					cr.Telegram.Client.SendVideo(video, msg, chats, true)
+				} else {
+					logger.Error(err)
 				}
-			} else {
-				cr.Telegram.Client.SendMsg(msg, chats, true)
+				video := tg.MediaParams{
+					Path:      tmpVideoFileName,
+					Width:     int32(flavor.Width),
+					Height:    int32(flavor.Height),
+					Streaming: true,
+					Thumbnail: thumb,
+				}
+				cr.Telegram.Client.SendVideo(video, msg, chats, true)
 			}
 		}
 	}
