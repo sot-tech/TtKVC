@@ -40,6 +40,7 @@ import (
 var Version = "0"
 
 const (
+	pVersion               = "${version}"
 	pIndex                 = "${index}"
 	pId                    = "${id}"
 	pName                  = "${name}"
@@ -53,7 +54,7 @@ const (
 
 var logger = logging.MustGetLogger("observer")
 
-func isEmpty(s string) bool{
+func isEmpty(s string) bool {
 	return len(s) == 0
 }
 
@@ -88,7 +89,7 @@ func formatMessage(template string, values map[string]interface{}) string {
 	return template
 }
 
-func downloadToDirectory(path, url, ext string) (string, error){
+func downloadToDirectory(path, url, ext string) (string, error) {
 	var err error
 	var tmpFileName string
 	var tmpFile *os.File

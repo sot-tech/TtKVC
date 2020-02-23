@@ -138,6 +138,7 @@ func (cr *Observer) getState(chat int64) (string, error) {
 		pAdmin:        isAdmin,
 		pFilesPending: pendingSB.String(),
 		pIndex: strconv.FormatUint(uint64(index), 10),
+		pVersion: Version,
 	}), err
 }
 
