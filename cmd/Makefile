@@ -4,11 +4,12 @@ FILES = main.go
 BUILD_NAME = ttkvc
 VERSION = $(shell git tag)
 COMMIT = $(shell git rev-parse --short HEAD)
-ifdef COMMIT
-FLAGS =-ldflags "-X 'sot-te.ch/TtKVC.Version=${COMMIT}'"
-endif
+ifeq ($(COMMIT),)
 ifdef VERSION
 FLAGS =-ldflags "-X 'sot-te.ch/TtKVC.Version=${VERSION}'"
+endif
+else
+FLAGS =-ldflags "-X 'sot-te.ch/TtKVC.Version=${COMMIT}'"
 endif
 
 ttkvc:	$(FILES)
