@@ -111,10 +111,14 @@ func (cr *Observer) getState(chat int64) (string, error) {
 	var err error
 	var isMob, isAdmin bool
 	var pending []TorrentFile
+	var index uint
 	if isMob, err = cr.DB.GetChatExist(chat); err != nil {
 		return "", err
 	}
 	if isAdmin, err = cr.DB.GetAdminExist(chat); err != nil {
+		return "", err
+	}
+	if index, err = cr.DB.GetCrawlOffset(); err != nil{
 		return "", err
 	}
 	pendingSB := strings.Builder{}
@@ -133,6 +137,7 @@ func (cr *Observer) getState(chat int64) (string, error) {
 		pWatch:        isMob,
 		pAdmin:        isAdmin,
 		pFilesPending: pendingSB.String(),
+		pIndex: strconv.FormatUint(uint64(index), 10),
 	}), err
 }
 
