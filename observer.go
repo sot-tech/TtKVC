@@ -236,16 +236,24 @@ func (cr *Observer) Init() error {
 func (cr *Observer) Engage() {
 	var err error
 	defer cr.DB.Close()
-	var baseOffset uint
+	var nextOffset uint
 	cr.Telegram.Client.HandleUpdates()
-	if baseOffset, err = cr.DB.GetCrawlOffset(); err == nil {
+	if nextOffset, err = cr.DB.GetCrawlOffset(); err == nil {
 		for {
+			newNextOffset := nextOffset
 			torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
-			for i, offset := uint(0), baseOffset; i < cr.Crawler.Threshold; i++ {
+			for offsetToCheck := nextOffset; offsetToCheck < nextOffset+ cr.Crawler.Threshold; offsetToCheck++ {
 				var torrent *Torrent
-				baseOffset, torrent = cr.checkTorrent(offset + i)
+				torrent = cr.checkTorrent(offsetToCheck)
 				if torrent != nil {
+					newNextOffset = offsetToCheck
 					torrents = append(torrents, torrent)
+				}
+			}
+			if newNextOffset > nextOffset {
+				nextOffset = newNextOffset + 1
+				if err = cr.DB.UpdateCrawlOffset(nextOffset); err != nil {
+					logger.Error(err)
 				}
 			}
 			if len(torrents) > 0 {
@@ -276,11 +284,11 @@ func (cr *Observer) getTorrentMeta(context string) (map[string]string, error) {
 	return meta, err
 }
 
-func (cr *Observer) checkTorrent(currentOffset uint) (uint, *Torrent) {
+func (cr *Observer) checkTorrent(offset uint) *Torrent {
 	var err error
 	var torrent *Torrent
-	logger.Debug("Checking offset ", currentOffset)
-	fullContext := fmt.Sprintf(cr.Crawler.ContextURL, currentOffset)
+	logger.Debug("Checking offset ", offset)
+	fullContext := fmt.Sprintf(cr.Crawler.ContextURL, offset)
 	if torrent, err = GetTorrent(cr.Crawler.BaseURL + fullContext); err == nil {
 		if torrent != nil {
 			logger.Info("New file", torrent.Info.Name)
@@ -309,18 +317,14 @@ func (cr *Observer) checkTorrent(currentOffset uint) (uint, *Torrent) {
 				} else {
 					logger.Infof("Torrent %s ignored", torrent.Info.Name)
 				}
-				currentOffset++
-				if err = cr.DB.UpdateCrawlOffset(currentOffset); err != nil {
-					logger.Error(err)
-				}
 			} else {
-				logger.Error("Zero torrent size, offset", currentOffset)
+				logger.Error("Zero torrent size, offset", offset)
 			}
 		} else {
 			logger.Debugf("%s not a torrent", fullContext)
 		}
 	}
-	return currentOffset, torrent
+	return torrent
 }
 
 func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
