@@ -393,6 +393,8 @@ func (cr *Observer) checkVideo() {
 						case *os.PathError:
 							if osErr.Err == syscall.EINTR {
 								stat, err = os.Stat(fullPath)
+							} else if osErr.Err == syscall.ENOENT{
+								continue
 							}
 						}
 						if err == nil {
