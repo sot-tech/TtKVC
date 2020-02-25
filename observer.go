@@ -246,24 +246,26 @@ func (cr *Observer) Engage() {
 				var torrent *Torrent
 				torrent = cr.checkTorrent(offsetToCheck)
 				if torrent != nil {
-					newNextOffset = offsetToCheck
+					newNextOffset = offsetToCheck + 1
 					torrents = append(torrents, torrent)
 				}
 			}
 			if newNextOffset > nextOffset {
-				nextOffset = newNextOffset + 1
+				nextOffset = newNextOffset
 				if err = cr.DB.UpdateCrawlOffset(nextOffset); err != nil {
 					logger.Error(err)
 				}
 			}
 			if len(torrents) > 0 {
-				cr.uploadTorrents(torrents)
+				go cr.uploadTorrents(torrents)
 			}
 			cr.checkVideo()
 			sleepTime := time.Duration(rand.Intn(int(cr.Crawler.Delay)) + int(cr.Crawler.Delay))
 			logger.Debugf("Sleeping %d sec", sleepTime)
 			time.Sleep(sleepTime * time.Second)
 		}
+	} else{
+		logger.Fatal(err)
 	}
 }
 
