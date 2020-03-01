@@ -40,16 +40,16 @@ import (
 var Version = "0"
 
 const (
-	pVersion               = "${version}"
-	pIndex                 = "${index}"
-	pId                    = "${id}"
-	pName                  = "${name}"
-	pWatch                 = "${watch}"
-	pAdmin                 = "${admin}"
-	pFilesPending          = "${files}"
-	pVideoUrl              = "${videourl}"
-	pIgnore                = "${ignorecmd}"
-	tCmdSwitchIgnorePrefix = "/switchignore_%d"
+	pVersion         = "${version}"
+	pIndex           = "${index}"
+	pId              = "${id}"
+	pName            = "${name}"
+	pWatch           = "${watch}"
+	pAdmin           = "${admin}"
+	pFilesPending    = "${files}"
+	pVideoUrl        = "${videourl}"
+	pIgnore          = "${ignorecmd}"
+	tCmdSwitchIgnore = "/switchignore"
 )
 
 var logger = logging.MustGetLogger("observer")

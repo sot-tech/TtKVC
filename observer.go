@@ -166,11 +166,11 @@ func (cr *Observer) InitTg() error {
 		}
 		return "", errors.New("too many auth tries")
 	}
-	if err := telegram.Login(authFunc, 10); err == nil {
+	if err := telegram.Login(authFunc, 100); err == nil {
 		cr.Telegram.Client = telegram
 		tries = math.MinInt16
 		logger.Debug("Telegram bot init complete")
-		return nil
+		return cr.Telegram.Client.AddCommand(tCmdSwitchIgnore, cr.cmdSwitchFileReadyStatus)
 	} else {
 		return err
 	}
@@ -179,7 +179,7 @@ func (cr *Observer) InitTg() error {
 func (cr *Observer) InitTransmission() error {
 	var err error
 	logger.Debug("Initiating transmission rpc")
-	if !isEmpty(cr.Transmission.Host) || cr.Transmission.Port > 0 {
+	if !isEmpty(cr.Transmission.Host) && cr.Transmission.Port > 0 {
 		var t *tr.Client
 		if t, err = tr.New(cr.Transmission.Host, cr.Transmission.Login, cr.Transmission.Password, &tr.AdvancedConfig{
 			HTTPS: cr.Transmission.Encryption,
@@ -302,7 +302,7 @@ func (cr *Observer) checkTorrent(offset uint) *Torrent {
 					logger.Debug("Adding torrent", torrent.Info.Name)
 					logger.Debug("Files: ", files)
 					var id int64
-					if id, err = cr.DB.AddTorrent(torrent.Info.Name, files); err == nil {
+					if id, err = cr.DB.AddTorrent(torrent.Info.Name, offset, files); err == nil {
 						var meta map[string]string
 						if meta, err = cr.DB.GetTorrentMeta(id); err == nil {
 							if len(meta) == 0 {
@@ -428,10 +428,7 @@ func (cr *Observer) checkVideo() {
 												} else {
 													file.Status = FileConvertingStatus
 												}
-												if err = cr.switchFileReadyStatus(file, admins); err == nil {
-													err = cr.Telegram.Client.AddCommand(fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id),
-														cr.cmdSwitchFileReadyStatus)
-												}
+												err = cr.switchFileReadyStatus(file, admins)
 											}
 										}
 									}
@@ -456,7 +453,6 @@ func (cr *Observer) checkVideo() {
 												err = errors.New("flavors for entry " + file.EntryId + " not found")
 											} else {
 												cr.sendTelegramVideo(file, entry, flavors.Objects[0])
-												cr.Telegram.Client.RmCommand(fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id))
 											}
 										}
 									}
@@ -476,13 +472,25 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
-func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, cmd, _ string) error {
+func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, _, args string) error {
 	var err error
 	var id int64
-	if _, err = fmt.Sscanf(cmd, tCmdSwitchIgnorePrefix, &id); err == nil {
-		var file TorrentFile
-		if file, err = cr.DB.GetTorrentFile(id); err == nil {
-			err = cr.switchFileReadyStatus(file, []int64{chat})
+	var isAdmin bool
+	if isAdmin, err = cr.DB.GetAdminExist(chat); err == nil {
+		if isAdmin {
+			if id, err = strconv.ParseInt(args, 10, 64); err == nil {
+				var file TorrentFile
+				if file, err = cr.DB.GetTorrentFile(id); err == nil {
+					if isEmpty(file.Name) {
+						err = errors.New("no such entry")
+					} else {
+						err = cr.switchFileReadyStatus(file, []int64{chat})
+					}
+				}
+			}
+		} else{
+			logger.Infof("SwitchFileReadyStatus unauthorized %d", chat)
+			cr.Telegram.Client.SendMsg(cr.Telegram.Messages.Unauthorized, []int64{chat}, false)
 		}
 	}
 	return err
@@ -490,21 +498,20 @@ func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, cmd, _ string) error {
 
 func (cr *Observer) switchFileReadyStatus(file TorrentFile, chats []int64) error {
 	var err error
-	var fileStatus uint8
+	var newFileStatus uint8
 	var ignoreMsg string
-	ignoreCmd := fmt.Sprintf(tCmdSwitchIgnorePrefix, file.Id)
 	if file.Status == FileReadyStatus {
 		ignoreMsg = cr.Telegram.Messages.VideoForced
-		fileStatus = FileConvertingStatus
+		newFileStatus = FileConvertingStatus
 	} else {
 		ignoreMsg = cr.Telegram.Messages.VideoIgnored
-		fileStatus = FileReadyStatus
+		newFileStatus = FileReadyStatus
 	}
-	if err = cr.DB.SetTorrentFileStatus(file.Id, fileStatus); err == nil {
+	if err = cr.DB.SetTorrentFileStatus(file.Id, newFileStatus); err == nil {
 		cr.Telegram.Client.SendMsg(formatMessage(ignoreMsg,
 			map[string]interface{}{
 				pName:   filepath.Base(file.Name),
-				pIgnore: ignoreCmd,
+				pIgnore: tCmdSwitchIgnore + "_" + strconv.FormatInt(file.Id, 10),
 			}), chats, true)
 	}
 	return err
@@ -514,6 +521,20 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 	var err error
 	var meta map[string]string
 	if meta, err = cr.DB.GetTorrentMeta(file.Torrent); err == nil {
+		//if len(meta) == 0{
+		//	logger.Warningf("Meta for file %s not found, reloading from target", file.Name)
+		//	var offset uint
+		//	var merr error
+		//	if offset, merr = cr.DB.GetTorrentOffset(file.Torrent); merr == nil && offset > 0{
+		//		fullContext := fmt.Sprintf(cr.Crawler.ContextURL, offset)
+		//		if meta, merr = cr.getTorrentMeta(fullContext); merr == nil && len(meta) > 0{
+		//			merr = cr.DB.AddTorrentMeta(file.Torrent, meta)
+		//		}
+		//	}
+		//	if merr != nil{
+		//		logger.Error(merr)
+		//	}
+		//}
 		var chats []int64
 		if chats, err = cr.DB.GetChats(); err == nil {
 			var index int64

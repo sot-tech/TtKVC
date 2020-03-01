@@ -52,13 +52,14 @@ const (
 	delAdmin     = "DELETE FROM TT_ADMIN WHERE ID = $1"
 	existAdmin   = "SELECT 1 FROM TT_ADMIN WHERE ID = $1"
 
-	selectTorrent         = "SELECT ID FROM TT_TORRENT WHERE NAME = $1"
-	insertOrUpdateTorrent = "INSERT INTO TT_TORRENT(NAME) VALUES ($1) ON CONFLICT(NAME) DO NOTHING"
+	selectTorrentId       = "SELECT ID FROM TT_TORRENT WHERE NAME = $1"
+	selectTorrentOffset   = "SELECT OFFSET FROM TT_TORRENT WHERE ID = $1"
+	insertOrUpdateTorrent = "INSERT INTO TT_TORRENT(NAME, OFFSET) VALUES ($1, $2) ON CONFLICT(NAME) DO UPDATE SET OFFSET = EXCLUDED.OFFSET"
 
 	selectTorrentMeta = "SELECT NAME, VALUE FROM TT_TORRENT_META WHERE TORRENT = $1"
 	insertTorrentMeta = "INSERT INTO TT_TORRENT_META(TORRENT, NAME, VALUE) VALUES($1, $2, $3) ON CONFLICT(TORRENT,NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
 
-	selectTorrentFile = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY FROM TT_TORRENT_FILE WHERE ID = $1"
+	selectTorrentFile          = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY FROM TT_TORRENT_FILE WHERE ID = $1"
 	selectTorrentFilesNotReady = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY FROM TT_TORRENT_FILE WHERE READY != $1"
 	selectTorrentFileIndex     = "SELECT IND FROM (SELECT ID, NAME, ROW_NUMBER() OVER(ORDER BY NAME) AS IND FROM TT_TORRENT_FILE WHERE TORRENT = $1) WHERE ID = $2"
 	insertTorrentFile          = "INSERT INTO TT_TORRENT_FILE(TORRENT, NAME) VALUES ($1, $2) ON CONFLICT (TORRENT,NAME) DO NOTHING"
@@ -178,10 +179,9 @@ func (db *Database) GetTorrent(torrent string) (int64, error) {
 	var torrentId int64
 	var err error
 	torrentId = -1
-	err = db.checkConnection()
-	if err == nil {
+	if err = db.checkConnection(); err == nil {
 		var rows *sql.Rows
-		rows, err = db.Connection.Query(selectTorrent, torrent)
+		rows, err = db.Connection.Query(selectTorrentId, torrent)
 		if err == nil && rows != nil {
 			defer rows.Close()
 			if rows.Next() {
@@ -192,10 +192,26 @@ func (db *Database) GetTorrent(torrent string) (int64, error) {
 	return torrentId, err
 }
 
-func (db *Database) AddTorrent(name string, files []string) (int64, error) {
+func (db *Database) GetTorrentOffset(id int64) (uint, error) {
+	var offset uint
+	var err error
+	if err = db.checkConnection(); err == nil {
+		var rows *sql.Rows
+		rows, err = db.Connection.Query(selectTorrentOffset, id)
+		if err == nil && rows != nil {
+			defer rows.Close()
+			if rows.Next() {
+				err = rows.Scan(&offset)
+			}
+		}
+	}
+	return offset, err
+}
+
+func (db *Database) AddTorrent(name string, offset uint, files []string) (int64, error) {
 	var err error
 	var id int64
-	if err = db.execNoResult(insertOrUpdateTorrent, name); err == nil {
+	if err = db.execNoResult(insertOrUpdateTorrent, name, offset); err == nil {
 		if id, err = db.GetTorrent(name); err == nil {
 			for _, file := range files {
 				err = db.execNoResult(insertTorrentFile, id, file)
@@ -250,7 +266,7 @@ func (db *Database) GetTorrentFilesNotReady() ([]TorrentFile, error) {
 				file := TorrentFile{}
 				if err = rows.Scan(&file.Id, &file.Torrent, &file.Name, &file.EntryId, &file.Status); err == nil {
 					files = append(files, file)
-				} else{
+				} else {
 					files = []TorrentFile{}
 					break
 				}
@@ -264,7 +280,7 @@ func (db *Database) GetTorrentFileIndex(torrent, id int64) (int64, error) {
 	var err error
 	var index int64
 	var tmp []int64
-	if tmp, err = db.getIntArray(selectTorrentFileIndex, torrent, id); err == nil && len(tmp) > 0{
+	if tmp, err = db.getIntArray(selectTorrentFileIndex, torrent, id); err == nil && len(tmp) > 0 {
 		index = tmp[0]
 	}
 	return index, err
@@ -373,4 +389,3 @@ func (db *Database) Close() {
 		_ = db.Connection.Close()
 	}
 }
-
