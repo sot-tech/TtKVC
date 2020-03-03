@@ -34,7 +34,6 @@ import (
 	tr "github.com/hekmon/transmissionrpc"
 	"html"
 	"io/ioutil"
-	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -73,12 +72,11 @@ type Observer struct {
 	FilesPath string   `json:"filespath"`
 	DB        Database `json:"db"`
 	Telegram  struct {
-		ApiId     string `json:"apiid"`
+		ApiId     int32 `json:"apiid"`
 		ApiHash   string `json:"apihash"`
 		BotToken  string `json:"bottoken"`
 		DBPath    string `json:"dbpath"`
 		FileStore string `json:"filestorepath"`
-		LogFile   string `json:"logfile"`
 		OTPSeed   string `json:"otpseed"`
 		Messages  struct {
 			tg.TGMessages
@@ -144,7 +142,6 @@ func (cr *Observer) getState(chat int64) (string, error) {
 
 func (cr *Observer) InitTg() error {
 	logger.Debug("Initiating telegram bot")
-	tg.SetupMtLog(cr.Telegram.LogFile, tg.MtLogWarning)
 	telegram := tg.New(cr.Telegram.ApiId, cr.Telegram.ApiHash, cr.Telegram.DBPath, cr.Telegram.FileStore, cr.Telegram.OTPSeed)
 	telegram.Messages = cr.Telegram.Messages.TGMessages
 	telegram.BackendFunctions = tg.TGBackendFunction{
@@ -158,17 +155,8 @@ func (cr *Observer) InitTg() error {
 		AdminRm:    cr.DB.DelAdmin,
 		State:      cr.getState,
 	}
-	var tries int
-	authFunc := func(_ string) (string, error) {
-		if tries < 5 {
-			tries++
-			return cr.Telegram.BotToken, nil
-		}
-		return "", errors.New("too many auth tries")
-	}
-	if err := telegram.Login(authFunc, 100); err == nil {
+	if err := telegram.LoginAsBot(cr.Telegram.BotToken, tg.MtLogWarning); err == nil {
 		cr.Telegram.Client = telegram
-		tries = math.MinInt16
 		logger.Debug("Telegram bot init complete")
 		return cr.Telegram.Client.AddCommand(tCmdSwitchIgnore, cr.cmdSwitchFileReadyStatus)
 	} else {

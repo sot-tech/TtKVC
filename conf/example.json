@@ -55,12 +55,11 @@
 		"secret": "abcdef1234567890"
 	},
 	"telegram": {
-		"apiid": "123456",
+		"apiid": 123456,
 		"apihash": "abcdefg1234567890",
 		"bottoken": "12345:abcdef1234567890",
 		"dbpath": "/some/dir",
 		"filestorepath": "/another/dir",
-		"logfile": "/log/dir.log",
 		"otpseed": "BASE32LONGLONGSEEDSTRING",
 		"msg": {
 			"error": "Operation error: ${msg}",
