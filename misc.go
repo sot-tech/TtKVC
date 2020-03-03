@@ -89,21 +89,15 @@ func formatMessage(template string, values map[string]interface{}) string {
 	return template
 }
 
-func logErr(err error){
-	if err != nil{
-		logger.Error(err)
-	}
-}
-
 func downloadToDirectory(path, url, ext string) (string, error) {
 	var err error
 	var tmpFileName string
 	var tmpFile *os.File
 	if tmpFile, err = ioutil.TempFile(path, "*."+ext); err == nil {
 		tmpFileName = tmpFile.Name()
-		defer logErr(tmpFile.Close())
+		defer tmpFile.Close()
 		if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
-			defer logErr(resp.Body.Close())
+			defer resp.Body.Close()
 			_, err = io.Copy(tmpFile, resp.Body)
 		} else {
 			err = responseError(resp, httpErr)
