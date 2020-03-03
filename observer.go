@@ -225,8 +225,8 @@ func (cr *Observer) Engage() {
 	var err error
 	defer cr.DB.Close()
 	var nextOffset uint
-	cr.Telegram.Client.HandleUpdates()
 	if nextOffset, err = cr.DB.GetCrawlOffset(); err == nil {
+		go cr.Telegram.Client.HandleUpdates()
 		for {
 			newNextOffset := nextOffset
 			torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
