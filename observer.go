@@ -44,6 +44,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	tmpl "text/template"
 )
 
 type Observer struct {
@@ -72,7 +73,7 @@ type Observer struct {
 	FilesPath string   `json:"filespath"`
 	DB        Database `json:"db"`
 	Telegram  struct {
-		ApiId     int32 `json:"apiid"`
+		ApiId     int32  `json:"apiid"`
 		ApiHash   string `json:"apihash"`
 		BotToken  string `json:"bottoken"`
 		DBPath    string `json:"dbpath"`
@@ -80,11 +81,16 @@ type Observer struct {
 		OTPSeed   string `json:"otpseed"`
 		Messages  struct {
 			tg.TGMessages
-			State        string `json:"state"`
-			VideoIgnored string `json:"videoignored"`
-			VideoForced  string `json:"videoforced"`
-			KUpload      string `json:"kupload"`
-			TUpload      string `json:"tupload"`
+			State            string         `json:"state"`
+			stateTmpl        *tmpl.Template `json:"-"`
+			VideoIgnored     string         `json:"videoignored"`
+			videoIgnoredTmpl *tmpl.Template `json:"-"`
+			VideoForced      string         `json:"videoforced"`
+			videoForcedTmpl  *tmpl.Template `json:"-"`
+			KUpload          string         `json:"kupload"`
+			kuploadTmpl      *tmpl.Template `json:"-"`
+			TUpload          string         `json:"tupload"`
+			tuploadTmpl      *tmpl.Template `json:"-"`
 		} `json:"msg"`
 		Video struct {
 			Upload   bool   `json:"upload"`
@@ -116,7 +122,7 @@ func (cr *Observer) getState(chat int64) (string, error) {
 	if isAdmin, err = cr.DB.GetAdminExist(chat); err != nil {
 		return "", err
 	}
-	if index, err = cr.DB.GetCrawlOffset(); err != nil{
+	if index, err = cr.DB.GetCrawlOffset(); err != nil {
 		return "", err
 	}
 	pendingSB := strings.Builder{}
@@ -131,13 +137,13 @@ func (cr *Observer) getState(chat int64) (string, error) {
 			}
 		}
 	}
-	return formatMessage(cr.Telegram.Messages.State, map[string]interface{}{
+	return formatMessage(cr.Telegram.Messages.stateTmpl, map[string]interface{}{
 		pWatch:        isMob,
 		pAdmin:        isAdmin,
 		pFilesPending: pendingSB.String(),
-		pIndex: strconv.FormatUint(uint64(index), 10),
-		pVersion: Version,
-	}), err
+		pIndex:        index,
+		pVersion:      Version,
+	})
 }
 
 func (cr *Observer) InitTg() error {
@@ -199,6 +205,27 @@ func (cr *Observer) InitMetaExtractor() error {
 	return err
 }
 
+func (cr *Observer) InitMessages() error {
+	var err error
+	if cr.Telegram.Messages.stateTmpl, err = tmpl.New("state").Parse(cr.Telegram.Messages.State); err != nil {
+		return err
+	}
+	if cr.Telegram.Messages.kuploadTmpl, err = tmpl.New("kupload").Parse(cr.Telegram.Messages.KUpload); err != nil {
+		return err
+	}
+	if cr.Telegram.Messages.tuploadTmpl, err = tmpl.New("tupload").Parse(cr.Telegram.Messages.TUpload); err != nil {
+		return err
+	}
+	if cr.Telegram.Messages.videoForcedTmpl, err = tmpl.New("videoForced").Parse(cr.Telegram.Messages.VideoForced); err != nil {
+		return err
+	}
+	if cr.Telegram.Messages.videoIgnoredTmpl, err = tmpl.New("videoIgnored").Parse(cr.Telegram.Messages.VideoIgnored); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (cr *Observer) Init() error {
 	var err error
 	if cr.ignorePattern, err = regexp.Compile(cr.Crawler.IgnoreRegexp); err != nil {
@@ -209,6 +236,10 @@ func (cr *Observer) Init() error {
 	}
 	if err = cr.InitTg(); err != nil {
 		return err
+	}
+	if err = cr.InitMessages(); err != nil{
+		logger.Error(err)
+		err = nil
 	}
 	if err = cr.InitMetaExtractor(); err != nil {
 		logger.Error(err)
@@ -230,7 +261,7 @@ func (cr *Observer) Engage() {
 		for {
 			newNextOffset := nextOffset
 			torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
-			for offsetToCheck := nextOffset; offsetToCheck < nextOffset+ cr.Crawler.Threshold; offsetToCheck++ {
+			for offsetToCheck := nextOffset; offsetToCheck < nextOffset+cr.Crawler.Threshold; offsetToCheck++ {
 				var torrent *Torrent
 				torrent = cr.checkTorrent(offsetToCheck)
 				if torrent != nil {
@@ -252,7 +283,7 @@ func (cr *Observer) Engage() {
 			logger.Debugf("Sleeping %d sec", sleepTime)
 			time.Sleep(sleepTime * time.Second)
 		}
-	} else{
+	} else {
 		logger.Fatal(err)
 	}
 }
@@ -266,7 +297,7 @@ func (cr *Observer) getTorrentMeta(context string) (map[string]string, error) {
 			meta = make(map[string]string, len(rawMeta))
 			for k, v := range rawMeta {
 				if !isEmpty(k) {
-					meta[k] = html.UnescapeString(string(v))
+					meta[k] = strings.TrimSpace(html.UnescapeString(string(v)))
 				}
 			}
 		}
@@ -387,7 +418,7 @@ func (cr *Observer) checkVideo() {
 						case *os.PathError:
 							if osErr.Err == syscall.EINTR {
 								stat, err = os.Stat(fullPath)
-							} else if osErr.Err == syscall.ENOENT{
+							} else if osErr.Err == syscall.ENOENT {
 								continue
 							}
 						}
@@ -405,12 +436,16 @@ func (cr *Observer) checkVideo() {
 										if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
 											var admins []int64
 											if admins, err = cr.DB.GetAdmins(); err == nil {
-												cr.Telegram.Client.SendMsg(formatMessage(cr.Telegram.Messages.KUpload,
+												var msg string
+												if msg, err = formatMessage(cr.Telegram.Messages.kuploadTmpl,
 													map[string]interface{}{
 														pName:  filepath.Base(file.Name),
 														pId:    entryId,
-														pIndex: strconv.FormatInt(file.Id, 10),
-													}), admins, true)
+														pIndex: file.Id,
+													}); err != nil{
+													msg = err.Error()
+												}
+												cr.Telegram.Client.SendMsg(msg, admins, true)
 												if cr.Telegram.Video.Upload {
 													file.Status = FileReadyStatus
 												} else {
@@ -476,7 +511,7 @@ func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, _, args string) error {
 					}
 				}
 			}
-		} else{
+		} else {
 			logger.Infof("SwitchFileReadyStatus unauthorized %d", chat)
 			cr.Telegram.Client.SendMsg(cr.Telegram.Messages.Unauthorized, []int64{chat}, false)
 		}
@@ -487,20 +522,24 @@ func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, _, args string) error {
 func (cr *Observer) switchFileReadyStatus(file TorrentFile, chats []int64) error {
 	var err error
 	var newFileStatus uint8
-	var ignoreMsg string
+	var ignoreMsg *tmpl.Template
 	if file.Status == FileReadyStatus {
-		ignoreMsg = cr.Telegram.Messages.VideoForced
+		ignoreMsg = cr.Telegram.Messages.videoForcedTmpl
 		newFileStatus = FileConvertingStatus
 	} else {
-		ignoreMsg = cr.Telegram.Messages.VideoIgnored
+		ignoreMsg = cr.Telegram.Messages.videoIgnoredTmpl
 		newFileStatus = FileReadyStatus
 	}
 	if err = cr.DB.SetTorrentFileStatus(file.Id, newFileStatus); err == nil {
-		cr.Telegram.Client.SendMsg(formatMessage(ignoreMsg,
+		var msg string
+		if msg, err = formatMessage(ignoreMsg,
 			map[string]interface{}{
 				pName:   filepath.Base(file.Name),
 				pIgnore: tCmdSwitchIgnore + "_" + strconv.FormatInt(file.Id, 10),
-			}), chats, true)
+			}); err != nil{
+			msg = err.Error()
+		}
+		cr.Telegram.Client.SendMsg(msg, chats, true)
 	}
 	return err
 }
@@ -526,16 +565,17 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 		var chats []int64
 		if chats, err = cr.DB.GetChats(); err == nil {
 			var index int64
+			var msg string
 			if index, err = cr.DB.GetTorrentFileIndex(file.Torrent, file.Id); err != nil {
 				logger.Error(err)
 			}
-			replacements := make(map[string]interface{}, len(meta)+2)
-			for k, v := range meta {
-				replacements["${"+k+"}"] = v
+			if msg, err = formatMessage(cr.Telegram.Messages.tuploadTmpl, map[string]interface{}{
+				pMeta: meta,
+				pVideoUrl: entry.DownloadURL,
+				pIndex: index,
+			}); err != nil{
+				msg = err.Error()
 			}
-			replacements[pVideoUrl] = entry.DownloadURL
-			replacements[pIndex] = strconv.FormatInt(index, 10)
-			msg := formatMessage(cr.Telegram.Messages.TUpload, replacements)
 			var tmpVideoFileName string
 			if tmpVideoFileName, err = downloadToDirectory(cr.Telegram.Video.TempPath, entry.DownloadURL, flavor.FileExt);
 				err == nil {

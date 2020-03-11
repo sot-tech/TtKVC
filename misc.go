@@ -27,28 +27,29 @@
 package TtKVC
 
 import (
+	"bytes"
 	"errors"
-	"fmt"
 	"github.com/op/go-logging"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
+	"text/template"
 )
 
 var Version = "0"
 
 const (
-	pVersion         = "${version}"
-	pIndex           = "${index}"
-	pId              = "${id}"
-	pName            = "${name}"
-	pWatch           = "${watch}"
-	pAdmin           = "${admin}"
-	pFilesPending    = "${files}"
-	pVideoUrl        = "${videourl}"
-	pIgnore          = "${ignorecmd}"
+	pVersion         = "version"
+	pIndex           = "index"
+	pId              = "id"
+	pName            = "name"
+	pWatch           = "watch"
+	pAdmin           = "admin"
+	pFilesPending    = "files"
+	pVideoUrl        = "videourl"
+	pIgnore          = "ignorecmd"
+	pMeta            = "meta"
 	tCmdSwitchIgnore = "/switchignore"
 )
 
@@ -78,15 +79,18 @@ func responseError(resp *http.Response, httpErr error) error {
 	return err
 }
 
-func formatMessage(template string, values map[string]interface{}) string {
-	if values != nil {
-		kv := make([]string, 0, len(values)*2)
-		for k, v := range values {
-			kv = append(kv, k, fmt.Sprint(v))
+func formatMessage(tmpl *template.Template, values map[string]interface{}) (string, error) {
+	var err error
+	var res string
+	if tmpl != nil {
+		buf := bytes.Buffer{}
+		if err = tmpl.Execute(&buf, values); err == nil {
+			res = buf.String()
 		}
-		template = strings.NewReplacer(kv...).Replace(template)
+	} else {
+		err = errors.New("template not inited")
 	}
-	return template
+	return res, err
 }
 
 func downloadToDirectory(path, url, ext string) (string, error) {

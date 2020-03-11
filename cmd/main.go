@@ -54,7 +54,7 @@ func main() {
 
 	var outputWriter io.Writer
 	if crawler.Log.File == "" {
-		outputWriter = os.Stderr
+		outputWriter = os.Stdout
 	} else {
 		outputWriter, err = os.OpenFile(crawler.Log.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
 	}

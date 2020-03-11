@@ -72,12 +72,12 @@
 				"rmadmin": "Access revoked",
 				"unknown": "Unknown command"
 			},
-			"state": "TtKVCv${version}\nNext index: ${index}\nPending files:\n```\n${files}\n```",
+			"state": "TtKVCv{{.version}}\nNext index: {{.index}}\nPending files:\n```\n{{.files}}\n```",
 			"ok": "ok",
-			"videoignored": "File `${name}` WILL be uploaded to telegram, to don't upload send ${ignorecmd}",
-			"videoforced": "File `${name}` WILL NOT be uploaded to telegram, to upload send ${ignorecmd}",
-			"kupload": "File `${name}` upload started.\nEntry id: `${id}`",
-			"tupload": "Telegram upload started"
+			"videoignored": "File `{{.name}}` WILL be uploaded to telegram, to don't upload send {{.ignorecmd}}",
+			"videoforced": "File `{{.name}}` WILL NOT be uploaded to telegram, to upload send {{.ignorecmd}}",
+			"kupload": "File `{{.name}}` upload started.\nEntry id: `{{.id}}`",
+			"tupload": "Telegram upload started {{.meta.extractedvalue}} {{.index}}"
 		},
 		"video": {
 			"upload": true,
