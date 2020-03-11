@@ -42,20 +42,20 @@ import (
 )
 
 const (
-	jsonMime            = "application/json"
-	kAPISessionStart    = "api_v3/service/session/action/start?format=1"
-	kAPISessionEnd      = "api_v3/service/session/action/end?format=1&ks=%s"
-	kAPIMediaGet        = "api_v3/service/media/action/get?format=1&ks=%s"
-	kAPIMediaAdd        = "api_v3/service/media/action/add?format=1&ks=%s"
-	kAPIMediaAddContent = "api_v3/service/media/action/addContent?format=1&ks=%s"
-	kAPIFlavorsList     = "api_v3/service/flavorAsset/action/List?format=1&ks=%s"
+	jsonMime                   = "application/json"
+	kAPISessionStart           = "api_v3/service/session/action/start?format=1"
+	kAPISessionEnd             = "api_v3/service/session/action/end?format=1&ks=%s"
+	kAPIMediaGet               = "api_v3/service/media/action/get?format=1&ks=%s"
+	kAPIMediaAdd               = "api_v3/service/media/action/add?format=1&ks=%s"
+	kAPIMediaAddContent        = "api_v3/service/media/action/addContent?format=1&ks=%s"
+	kAPIFlavorsList            = "api_v3/service/flavorAsset/action/List?format=1&ks=%s"
 	kAPIThumbnailContextFormat = "%s/width/%d/height/%d"
-	kSessionTTL         = 1800
-	kUserSessionType    = 0
-	kVideoMediaType     = 1
-	kFileSourceType     = "1"
-	KEntryStatusReady   = 2
-	kEntryIdField       = "entryId"
+	kSessionTTL                = 1800
+	kUserSessionType           = 0
+	kVideoMediaType            = 1
+	kFileSourceType            = "1"
+	KEntryStatusReady          = 2
+	kEntryIdField              = "entryId"
 )
 
 type Kaltura struct {
@@ -96,6 +96,7 @@ type KBaseEntry struct {
 	KObject
 	UserId       string `json:"userId,omitempty"`
 	CreatorId    string `json:"creatorId,omitempty"`
+	Tags         string `json:"tags,omitempty"`
 	Status       int    `json:"status,omitempty"`
 	DownloadURL  string `json:"downloadUrl,omitempty"`
 	ThumbnailUrl string `json:"thumbnailUrl,omitempty"`
@@ -236,7 +237,7 @@ func (kl *Kaltura) GetMediaEntry(id string) (KMediaEntry, error) {
 	return entry, err
 }
 
-func (kl *Kaltura) CreateMediaEntry(name string) (string, error) {
+func (kl *Kaltura) CreateMediaEntry(name, tags string) (string, error) {
 	var err error
 	var entry KMediaEntry
 	var entryId string
@@ -249,6 +250,7 @@ func (kl *Kaltura) CreateMediaEntry(name string) (string, error) {
 				},
 				UserId:    kl.UserId,
 				CreatorId: kl.UserId,
+				Tags: tags,
 			},
 			MediaType:  kVideoMediaType,
 			SourceType: kFileSourceType,
@@ -338,10 +340,10 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 	return err
 }
 
-func FormatThumbnailURL(plainUrl string, width, height uint) string{
-	if width == 0 || height == 0{
+func FormatThumbnailURL(plainUrl string, width, height uint) string {
+	if width == 0 || height == 0 {
 		return plainUrl
-	} else{
+	} else {
 		return fmt.Sprintf(kAPIThumbnailContextFormat, plainUrl, width, height)
 	}
 }

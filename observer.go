@@ -43,8 +43,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 	tmpl "text/template"
+	"time"
 )
 
 type Observer struct {
@@ -98,7 +98,10 @@ type Observer struct {
 		} `json:"video"`
 		Client *tg.Telegram `json:"-"`
 	} `json:"telegram"`
-	Kaltura       Kaltura        `json:"kaltura"`
+	Kaltura struct {
+		Kaltura
+		Tags []string `json:"tags"`
+	} `json:"kaltura"`
 	ignorePattern *regexp.Regexp `json:"-"`
 }
 
@@ -237,7 +240,7 @@ func (cr *Observer) Init() error {
 	if err = cr.InitTg(); err != nil {
 		return err
 	}
-	if err = cr.InitMessages(); err != nil{
+	if err = cr.InitMessages(); err != nil {
 		logger.Error(err)
 		err = nil
 	}
@@ -429,7 +432,8 @@ func (cr *Observer) checkVideo() {
 								fName := stat.Name()
 								logger.Debugf("Found ready file %s, size: %d", fName, stat.Size())
 								var entryId string
-								if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath); err == nil && !isEmpty(entryId) {
+								if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, cr.prepareKTags(file.Torrent));
+									err == nil && !isEmpty(entryId) {
 									logger.Debug("Uploading file", fName)
 									if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
 										logger.Debug("Updating file entry id", entryId)
@@ -442,7 +446,7 @@ func (cr *Observer) checkVideo() {
 														pName:  filepath.Base(file.Name),
 														pId:    entryId,
 														pIndex: file.Id,
-													}); err != nil{
+													}); err != nil {
 													msg = err.Error()
 												}
 												cr.Telegram.Client.SendMsg(msg, admins, true)
@@ -495,6 +499,37 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
+func (cr *Observer) prepareKTags(id int64) string {
+	sb := strings.Builder{}
+	if len(cr.Kaltura.Tags) > 0 {
+		if meta, err := cr.DB.GetTorrentMeta(id); err == nil {
+			if len(meta) > 0 {
+				isFirst := true
+				for _, k := range cr.Kaltura.Tags {
+					m := meta[k]
+					if !isEmpty(m) {
+						for _, e := range strings.Split(m, ",") {
+							e = strings.TrimSpace(e)
+							if !isEmpty(e) {
+								if isFirst {
+									isFirst = false
+								} else {
+									sb.WriteRune(',')
+								}
+								e = nonLetterNumberSpaceRegexp.ReplaceAllString(e, "")
+								sb.WriteString(strings.ReplaceAll(e, " ", "_"))
+							}
+						}
+					}
+				}
+			}
+		} else {
+			logger.Error(err)
+		}
+	}
+	return sb.String()
+}
+
 func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, _, args string) error {
 	var err error
 	var id int64
@@ -536,7 +571,7 @@ func (cr *Observer) switchFileReadyStatus(file TorrentFile, chats []int64) error
 			map[string]interface{}{
 				pName:   filepath.Base(file.Name),
 				pIgnore: tCmdSwitchIgnore + "_" + strconv.FormatInt(file.Id, 10),
-			}); err != nil{
+			}); err != nil {
 			msg = err.Error()
 		}
 		cr.Telegram.Client.SendMsg(msg, chats, true)
@@ -570,10 +605,11 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 				logger.Error(err)
 			}
 			if msg, err = formatMessage(cr.Telegram.Messages.tuploadTmpl, map[string]interface{}{
-				pMeta: meta,
+				pMeta:     meta,
 				pVideoUrl: entry.DownloadURL,
-				pIndex: index,
-			}); err != nil{
+				pIndex:    index,
+				pTags:     formatHashTags(entry.Tags),
+			}); err != nil {
 				msg = err.Error()
 			}
 			var tmpVideoFileName string

@@ -34,6 +34,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 	"text/template"
 )
 
@@ -50,10 +52,12 @@ const (
 	pVideoUrl        = "videourl"
 	pIgnore          = "ignorecmd"
 	pMeta            = "meta"
+	pTags            = "tags"
 	tCmdSwitchIgnore = "/switchignore"
 )
 
 var logger = logging.MustGetLogger("observer")
+var nonLetterNumberSpaceRegexp = regexp.MustCompile("[^\\p{L}\\p{N}_ ]")
 
 func isEmpty(s string) bool {
 	return len(s) == 0
@@ -108,4 +112,19 @@ func downloadToDirectory(path, url, ext string) (string, error) {
 		}
 	}
 	return tmpFileName, err
+}
+
+func formatHashTags(commaSeparatedWords string) string{
+	sb := strings.Builder{}
+	if !isEmpty(commaSeparatedWords){
+		for _, e := range strings.Split(commaSeparatedWords, ",") {
+			e = strings.TrimSpace(e)
+			if !isEmpty(e) {
+				sb.WriteRune('#')
+				sb.WriteString(e)
+				sb.WriteRune(' ')
+			}
+		}
+	}
+	return sb.String()
 }
