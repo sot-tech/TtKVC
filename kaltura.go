@@ -45,6 +45,7 @@ const (
 	jsonMime                   = "application/json"
 	kAPISessionStart           = "api_v3/service/session/action/start?format=1"
 	kAPISessionEnd             = "api_v3/service/session/action/end?format=1&ks=%s"
+	kAPISessionGet             = "api_v3/service/session/action/get?format=1&ks=%s"
 	kAPIMediaGet               = "api_v3/service/media/action/get?format=1&ks=%s"
 	kAPIMediaAdd               = "api_v3/service/media/action/add?format=1&ks=%s"
 	kAPIMediaAddContent        = "api_v3/service/media/action/addContent?format=1&ks=%s"
@@ -73,6 +74,16 @@ type KSession struct {
 	PartnerID  uint   `json:"partnerId"`
 	Expiry     int64  `json:"expiry"`
 	Privileges string `json:"privileges"`
+}
+
+type KSessionInfo struct {
+	KS          string `json:"ks"`
+	SessionType string `json:"sessionType"`
+	PartnerID   string `json:"partnerId"`
+	UserID      string `json:"userId"`
+	Expiry      string `json:"expiry"`
+	Privileges  string `json:"privileges"`
+	ObjectType  string `json:"objectType"`
 }
 
 type KObject struct {
@@ -163,7 +174,7 @@ func (kl *Kaltura) postJson(context string, obj interface{}) ([]byte, error) {
 }
 
 func (kl *Kaltura) CreateSession() error {
-	if kl.session != "" {
+	if !isEmpty(kl.session) {
 		kl.EndSession()
 	}
 	var err error
@@ -186,7 +197,7 @@ func (kl *Kaltura) CreateSession() error {
 }
 
 func (kl *Kaltura) EndSession() {
-	if kl.session != "" {
+	if !isEmpty(kl.session) {
 		fullUrl := kl.prepareURL(kAPISessionEnd)
 		fullUrl = fmt.Sprintf(fullUrl, kl.session)
 		if resp, err := http.Get(fullUrl); !checkResponse(resp, err) {
@@ -196,6 +207,22 @@ func (kl *Kaltura) EndSession() {
 	}
 }
 
+var dummy = struct{}{}
+
+func (kl *Kaltura) GetSession() (KSessionInfo, error){
+	var err error
+	res := KSessionInfo{}
+	if isEmpty(kl.session) {
+		err = errors.New("unauthorized")
+	} else{
+		if err = kl.kSend(kAPISessionGet, dummy, &res); err != nil{
+			kl.session = ""
+		}
+		return res, err
+	}
+	return res, err
+}
+
 type kFlavorByEntryFilter struct {
 	KObject
 	EntryId string `json:"entryIdEqual"`
@@ -203,7 +230,7 @@ type kFlavorByEntryFilter struct {
 
 func (kl *Kaltura) kSend(context string, send interface{}, result interface{}) error {
 	var err error
-	if kl.session == "" {
+	if isEmpty(kl.session) {
 		return errors.New("empty session")
 	}
 	fullContext := fmt.Sprintf(context, kl.session)
@@ -250,14 +277,14 @@ func (kl *Kaltura) CreateMediaEntry(name, tags string) (string, error) {
 				},
 				UserId:    kl.UserId,
 				CreatorId: kl.UserId,
-				Tags: tags,
+				Tags:      tags,
 			},
 			MediaType:  kVideoMediaType,
 			SourceType: kFileSourceType,
 		},
 	}
 	if err = kl.kSend(kAPIMediaAdd, obj, &entry); err == nil {
-		if entry.Id == "" {
+		if isEmpty(entry.Id) {
 			err = errors.New("unable to get entry id")
 		} else {
 			entryId = entry.Id
@@ -270,7 +297,7 @@ func jsonError(data []byte) error {
 	var err error
 	outErr := KError{}
 	if err = json.Unmarshal(data, &outErr); err == nil {
-		if strings.Contains(outErr.ObjectType, "Exception") || outErr.Code != "" {
+		if strings.Contains(outErr.ObjectType, "Exception") || !isEmpty(outErr.Code) {
 			err = errors.New(outErr.ObjectType + ":" + outErr.Message)
 		}
 	} else {
@@ -280,7 +307,7 @@ func jsonError(data []byte) error {
 }
 
 func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
-	if kl.session == "" {
+	if isEmpty(kl.session) {
 		return errors.New("empty session")
 	}
 	r, w := io.Pipe()

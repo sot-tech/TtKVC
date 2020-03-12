@@ -173,6 +173,18 @@ func (cr *Observer) InitTg() error {
 	}
 }
 
+func (cr *Observer) InitKaltura() error {
+	var err error
+	logger.Debug("Initiating kaltura")
+	if isEmpty(cr.Kaltura.URL) || isEmpty(cr.Kaltura.UserId) || isEmpty(cr.Kaltura.Secret){
+		err = errors.New("invalid kaltura connection data")
+	} else {
+		err = cr.Kaltura.CreateSession()
+	}
+	logger.Debug("Kaltura init complete, err", err)
+	return err
+}
+
 func (cr *Observer) InitTransmission() error {
 	var err error
 	logger.Debug("Initiating transmission rpc")
@@ -210,23 +222,38 @@ func (cr *Observer) InitMetaExtractor() error {
 
 func (cr *Observer) InitMessages() error {
 	var err error
+	sb := strings.Builder{}
+	logger.Debug("Initiating message templates")
 	if cr.Telegram.Messages.stateTmpl, err = tmpl.New("state").Parse(cr.Telegram.Messages.State); err != nil {
-		return err
+		sb.WriteString("state: ")
+		sb.WriteString(err.Error())
+		sb.WriteRune('\n')
 	}
 	if cr.Telegram.Messages.kuploadTmpl, err = tmpl.New("kupload").Parse(cr.Telegram.Messages.KUpload); err != nil {
-		return err
+		sb.WriteString("kupload: ")
+		sb.WriteString(err.Error())
+		sb.WriteRune('\n')
 	}
 	if cr.Telegram.Messages.tuploadTmpl, err = tmpl.New("tupload").Parse(cr.Telegram.Messages.TUpload); err != nil {
-		return err
+		sb.WriteString("tupload: ")
+		sb.WriteString(err.Error())
+		sb.WriteRune('\n')
 	}
 	if cr.Telegram.Messages.videoForcedTmpl, err = tmpl.New("videoForced").Parse(cr.Telegram.Messages.VideoForced); err != nil {
-		return err
+		sb.WriteString("videoForced: ")
+		sb.WriteString(err.Error())
+		sb.WriteRune('\n')
 	}
 	if cr.Telegram.Messages.videoIgnoredTmpl, err = tmpl.New("videoIgnored").Parse(cr.Telegram.Messages.VideoIgnored); err != nil {
-		return err
+		sb.WriteString("videoIgnored: ")
+		sb.WriteString(err.Error())
+		sb.WriteRune('\n')
 	}
-
-	return nil
+	if sb.Len() > 0{
+		err = errors.New(sb.String())
+	}
+	logger.Debug("Message templates init complete, err", err)
+	return err
 }
 
 func (cr *Observer) Init() error {
@@ -238,6 +265,9 @@ func (cr *Observer) Init() error {
 		return err
 	}
 	if err = cr.InitTg(); err != nil {
+		return err
+	}
+	if err = cr.InitKaltura(); err != nil{
 		return err
 	}
 	if err = cr.InitMessages(); err != nil {
@@ -256,8 +286,10 @@ func (cr *Observer) Init() error {
 }
 
 func (cr *Observer) Engage() {
-	var err error
 	defer cr.DB.Close()
+	defer cr.Kaltura.EndSession()
+	defer cr.Telegram.Client.Close()
+	var err error
 	var nextOffset uint
 	if nextOffset, err = cr.DB.GetCrawlOffset(); err == nil {
 		go cr.Telegram.Client.HandleUpdates()
@@ -405,8 +437,14 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 
 func (cr *Observer) checkVideo() {
 	var err error
-	if err = cr.Kaltura.CreateSession(); err == nil {
-		defer cr.Kaltura.EndSession()
+	var session KSessionInfo
+	if session, err = cr.Kaltura.GetSession(); err != nil{
+		logger.Error(err)
+		err = cr.InitKaltura()
+	} else{
+		logger.Debug("Logged as", session.UserID)
+	}
+	if err == nil {
 		var files []TorrentFile
 		if files, err = cr.DB.GetTorrentFilesNotReady(); err == nil && files != nil {
 			for _, file := range files {
