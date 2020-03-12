@@ -1,6 +1,6 @@
 default:	ttkvc
 
-FILES = main.go
+FILES = main.go ../*.go
 BUILD_NAME = ttkvc
 VERSION = $(shell git tag)
 COMMIT = $(shell git rev-parse --short HEAD)
