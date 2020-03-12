@@ -13,4 +13,4 @@ FLAGS =-ldflags "-X 'sot-te.ch/TtKVC.Version=${COMMIT}'"
 endif
 
 ttkvc:	$(FILES)
-	go build -a ${FLAGS} -o ${BUILD_NAME} ${FILES}
+	go build -a ${FLAGS} -o ${BUILD_NAME} main.go
