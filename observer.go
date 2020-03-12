@@ -176,7 +176,7 @@ func (cr *Observer) InitTg() error {
 func (cr *Observer) InitKaltura() error {
 	var err error
 	logger.Debug("Initiating kaltura")
-	if isEmpty(cr.Kaltura.URL) || isEmpty(cr.Kaltura.UserId) || isEmpty(cr.Kaltura.Secret){
+	if isEmpty(cr.Kaltura.URL) || isEmpty(cr.Kaltura.UserId) || isEmpty(cr.Kaltura.Secret) {
 		err = errors.New("invalid kaltura connection data")
 	} else {
 		err = cr.Kaltura.CreateSession()
@@ -249,7 +249,7 @@ func (cr *Observer) InitMessages() error {
 		sb.WriteString(err.Error())
 		sb.WriteRune('\n')
 	}
-	if sb.Len() > 0{
+	if sb.Len() > 0 {
 		err = errors.New(sb.String())
 	}
 	logger.Debug("Message templates init complete, err", err)
@@ -267,7 +267,7 @@ func (cr *Observer) Init() error {
 	if err = cr.InitTg(); err != nil {
 		return err
 	}
-	if err = cr.InitKaltura(); err != nil{
+	if err = cr.InitKaltura(); err != nil {
 		return err
 	}
 	if err = cr.InitMessages(); err != nil {
@@ -438,10 +438,10 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 func (cr *Observer) checkVideo() {
 	var err error
 	var session KSessionInfo
-	if session, err = cr.Kaltura.GetSession(); err != nil{
+	if session, err = cr.Kaltura.GetSession(); err != nil {
 		logger.Error(err)
 		err = cr.InitKaltura()
-	} else{
+	} else {
 		logger.Debug("Logged as", session.UserID)
 	}
 	if err == nil {
@@ -451,16 +451,21 @@ func (cr *Observer) checkVideo() {
 				if !isEmpty(file.Name) {
 					if file.Status == FilePendingStatus {
 						var err error
+						var stat os.FileInfo
 						fullPath := filepath.Join(cr.Kaltura.WatchPath, file.Name)
 						fullPath = filepath.FromSlash(fullPath)
-						var stat os.FileInfo
 						stat, err = os.Stat(fullPath)
-						switch osErr := err.(type) {
-						case *os.PathError:
-							if osErr.Err == syscall.EINTR {
-								stat, err = os.Stat(fullPath)
-							} else if osErr.Err == syscall.ENOENT {
-								continue
+						if err != nil {
+							switch osErr := err.(type) {
+							case *os.PathError:
+								switch osErr.Err {
+								case syscall.EINTR:
+									stat, err = os.Stat(fullPath)
+								case syscall.ENOENT:
+									continue
+								default:
+									logger.Error(err)
+								}
 							}
 						}
 						if err == nil {
