@@ -70,9 +70,8 @@ type Observer struct {
 		Encryption bool       `json:"encryption"`
 		Client     *tr.Client `json:"-"`
 	} `json:"transmission"`
-	FilesPath string   `json:"filespath"`
-	DB        Database `json:"db"`
-	Telegram  struct {
+	DB       Database `json:"db"`
+	Telegram struct {
 		ApiId     int32  `json:"apiid"`
 		ApiHash   string `json:"apihash"`
 		BotToken  string `json:"bottoken"`
@@ -100,7 +99,8 @@ type Observer struct {
 	} `json:"telegram"`
 	Kaltura struct {
 		Kaltura
-		Tags []string `json:"tags"`
+		WatchPath string   `json:"watchpath"`
+		Tags      []string `json:"tags"`
 	} `json:"kaltura"`
 	ignorePattern *regexp.Regexp `json:"-"`
 }
@@ -413,7 +413,7 @@ func (cr *Observer) checkVideo() {
 				if !isEmpty(file.Name) {
 					if file.Status == FilePendingStatus {
 						var err error
-						fullPath := filepath.Join(cr.FilesPath, file.Name)
+						fullPath := filepath.Join(cr.Kaltura.WatchPath, file.Name)
 						fullPath = filepath.FromSlash(fullPath)
 						var stat os.FileInfo
 						stat, err = os.Stat(fullPath)

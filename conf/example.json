@@ -52,7 +52,12 @@
 		"url": "http://localhost",
 		"partnerid": 100,
 		"userid": "user@localhost.localdomain",
-		"secret": "abcdef1234567890"
+		"secret": "abcdef1234567890",
+		"watchpath": "/some/dir",
+		"tags": [
+			"name_en",
+			"name"
+		]
 	},
 	"telegram": {
 		"apiid": 123456,
@@ -77,7 +82,7 @@
 			"videoignored": "File `{{.name}}` WILL be uploaded to telegram, to don't upload send {{.ignorecmd}}",
 			"videoforced": "File `{{.name}}` WILL NOT be uploaded to telegram, to upload send {{.ignorecmd}}",
 			"kupload": "File `{{.name}}` upload started.\nEntry id: `{{.id}}`",
-			"tupload": "Telegram upload started {{.meta.extractedvalue}} {{.index}}"
+			"tupload": "Telegram upload started {{.meta.name_en}} {{.index}}"
 		},
 		"video": {
 			"upload": true,
@@ -86,6 +91,5 @@
 	},
 	"db": {
 		"connection": "conf/example.sqlite"
-	},
-	"filespath": "/some/dir"
+	}
 }
