@@ -357,14 +357,16 @@ func (cr *Observer) checkTorrent(offset uint) *Torrent {
 					logger.Debug("Files: ", files)
 					var id int64
 					if id, err = cr.DB.AddTorrent(torrent.Info.Name, offset, files); err == nil {
-						var meta map[string]string
-						if meta, err = cr.DB.GetTorrentMeta(id); err == nil {
-							if len(meta) == 0 {
-								if meta, err = cr.getTorrentMeta(fullContext); err == nil && len(meta) > 0 {
-									logger.Debug("Writing meta: ", meta)
-									err = cr.DB.AddTorrentMeta(id, meta)
-								}
-							}
+						var newMeta, existMeta map[string]string
+						if newMeta, err = cr.getTorrentMeta(fullContext); err != nil {
+							logger.Error(err)
+						}
+						if existMeta, err = cr.DB.GetTorrentMeta(id); err != nil {
+							logger.Error(err)
+						}
+						if len(newMeta) > 0 && len(newMeta) >= len(existMeta) {
+							logger.Debug("Writing newMeta: ", newMeta)
+							err = cr.DB.AddTorrentMeta(id, newMeta)
 						}
 					}
 					if err != nil {
