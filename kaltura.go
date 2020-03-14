@@ -144,10 +144,10 @@ type KFlavorAsset struct {
 }
 
 type KError struct {
-	Code       string                 `json:"code"`
-	Message    string                 `json:"message"`
-	ObjectType string                 `json:"objectType"`
-	Args       map[string]interface{} `json:"args"`
+	Code       string      `json:"code"`
+	Message    string      `json:"message"`
+	ObjectType string      `json:"objectType"`
+	Args       interface{} `json:"args"`
 }
 
 func (kl *Kaltura) prepareURL(context string) string {
@@ -209,13 +209,13 @@ func (kl *Kaltura) EndSession() {
 
 var dummy = struct{}{}
 
-func (kl *Kaltura) GetSession() (KSessionInfo, error){
+func (kl *Kaltura) GetSession() (KSessionInfo, error) {
 	var err error
 	res := KSessionInfo{}
 	if isEmpty(kl.session) {
 		err = errors.New("unauthorized")
-	} else{
-		if err = kl.kSend(kAPISessionGet, dummy, &res); err != nil{
+	} else {
+		if err = kl.kSend(kAPISessionGet, dummy, &res); err != nil {
 			kl.session = ""
 		}
 		return res, err

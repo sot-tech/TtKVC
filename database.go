@@ -75,6 +75,7 @@ const (
 	FilePendingStatus    = 0
 	FileConvertingStatus = 1
 	FileReadyStatus      = 2
+	FileErrorStatus      = 255
 )
 
 func (db *Database) checkConnection() error {

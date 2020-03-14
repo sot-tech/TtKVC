@@ -474,17 +474,17 @@ func (cr *Observer) checkVideo() {
 							if stat == nil {
 								logger.Warning("Unable to stat file", fullPath)
 							} else {
-								fName := stat.Name()
-								logger.Debugf("Found ready file %s, size: %d", fName, stat.Size())
-								var entryId string
-								if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, cr.prepareKTags(file.Torrent));
-									err == nil && !isEmpty(entryId) {
-									logger.Debug("Uploading file", fName)
-									if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
-										logger.Debug("Updating file entry id", entryId)
-										if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
-											var admins []int64
-											if admins, err = cr.DB.GetAdmins(); err == nil {
+								var admins []int64
+								if admins, err = cr.DB.GetAdmins(); err == nil {
+									fName := stat.Name()
+									logger.Debugf("Found ready file %s, size: %d", fName, stat.Size())
+									var entryId string
+									if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, cr.prepareKTags(file.Torrent));
+										err == nil && !isEmpty(entryId) {
+										logger.Debug("Uploading file", fName)
+										if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
+											logger.Debug("Updating file entry id", entryId)
+											if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
 												var msg string
 												if msg, err = formatMessage(cr.Telegram.Messages.kuploadTmpl,
 													map[string]interface{}{
@@ -503,6 +503,14 @@ func (cr *Observer) checkVideo() {
 												err = cr.switchFileReadyStatus(file, admins)
 											}
 										}
+									}
+									if err != nil{
+										logger.Error(err)
+										cr.Telegram.Client.SendMsg(fmt.Sprint(cr.Telegram.Messages.Error, err,
+											"entry id", entryId,
+											"file id", file.Id),
+											admins, false)
+										err = cr.DB.SetTorrentFileStatus(file.Id, FileErrorStatus)
 									}
 								}
 							}
@@ -603,12 +611,12 @@ func (cr *Observer) switchFileReadyStatus(file TorrentFile, chats []int64) error
 	var err error
 	var newFileStatus uint8
 	var ignoreMsg *tmpl.Template
-	if file.Status == FileReadyStatus {
-		ignoreMsg = cr.Telegram.Messages.videoForcedTmpl
-		newFileStatus = FileConvertingStatus
-	} else {
+	if file.Status == FileConvertingStatus {
 		ignoreMsg = cr.Telegram.Messages.videoIgnoredTmpl
 		newFileStatus = FileReadyStatus
+	} else {
+		ignoreMsg = cr.Telegram.Messages.videoForcedTmpl
+		newFileStatus = FileConvertingStatus
 	}
 	if err = cr.DB.SetTorrentFileStatus(file.Id, newFileStatus); err == nil {
 		var msg string
