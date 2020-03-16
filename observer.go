@@ -508,7 +508,7 @@ func (cr *Observer) checkVideo() {
 										logger.Error(err)
 										cr.Telegram.Client.SendMsg(fmt.Sprint(cr.Telegram.Messages.Error, err,
 											" entry id ", entryId,
-											" file id ", file.Id),
+											" file ", file.String()),
 											admins, false)
 										err = cr.DB.SetTorrentFileStatus(file.Id, FileErrorStatus)
 									}
