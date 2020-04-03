@@ -54,6 +54,7 @@ const (
 	pMeta            = "meta"
 	pTags            = "tags"
 	tCmdSwitchIgnore = "/switchignore"
+	tCmdForceUpload  = "/forceupload"
 )
 
 var logger = logging.MustGetLogger("observer")
@@ -114,9 +115,9 @@ func downloadToDirectory(path, url, ext string) (string, error) {
 	return tmpFileName, err
 }
 
-func formatHashTags(commaSeparatedWords string) string{
+func formatHashTags(commaSeparatedWords string) string {
 	sb := strings.Builder{}
-	if !isEmpty(commaSeparatedWords){
+	if !isEmpty(commaSeparatedWords) {
 		for _, e := range strings.Split(commaSeparatedWords, ",") {
 			e = strings.TrimSpace(e)
 			if !isEmpty(e) {

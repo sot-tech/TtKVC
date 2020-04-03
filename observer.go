@@ -167,6 +167,7 @@ func (cr *Observer) InitTg() error {
 	if err := telegram.LoginAsBot(cr.Telegram.BotToken, tg.MtLogWarning); err == nil {
 		cr.Telegram.Client = telegram
 		logger.Debug("Telegram bot init complete")
+		_ = cr.Telegram.Client.AddCommand(tCmdForceUpload, cr.cmdCheckTorrent)
 		return cr.Telegram.Client.AddCommand(tCmdSwitchIgnore, cr.cmdSwitchFileReadyStatus)
 	} else {
 		return err
@@ -298,7 +299,7 @@ func (cr *Observer) Engage() {
 			torrents := make([]*Torrent, 0, cr.Crawler.Threshold)
 			for offsetToCheck := nextOffset; offsetToCheck < nextOffset+cr.Crawler.Threshold; offsetToCheck++ {
 				var torrent *Torrent
-				torrent = cr.checkTorrent(offsetToCheck)
+				torrent = cr.checkTorrent(offsetToCheck, false)
 				if torrent != nil {
 					newNextOffset = offsetToCheck + 1
 					torrents = append(torrents, torrent)
@@ -340,7 +341,28 @@ func (cr *Observer) getTorrentMeta(context string) (map[string]string, error) {
 	return meta, err
 }
 
-func (cr *Observer) checkTorrent(offset uint) *Torrent {
+func (cr *Observer) cmdCheckTorrent(chat int64, _, args string) error {
+	var err error
+	var isAdmin bool
+	if isAdmin, err = cr.DB.GetAdminExist(chat); err == nil {
+		if isAdmin {
+			var offset uint64
+			if offset, err = strconv.ParseUint(args, 10, 64); err == nil {
+				if torrent := cr.checkTorrent(uint(offset), true); torrent != nil{
+					go cr.uploadTorrents([]*Torrent{torrent})
+				} else{
+					err = errors.New("<nil>")
+				}
+			}
+		} else {
+			logger.Infof("ForceUpload unauthorized %d", chat)
+			cr.Telegram.Client.SendMsg(cr.Telegram.Messages.Unauthorized, []int64{chat}, false)
+		}
+	}
+	return err
+}
+
+func (cr *Observer) checkTorrent(offset uint, force bool) *Torrent {
 	var err error
 	var torrent *Torrent
 	logger.Debug("Checking offset ", offset)
@@ -351,7 +373,22 @@ func (cr *Observer) checkTorrent(offset uint) *Torrent {
 			size := torrent.FullSize()
 			logger.Info("New torrent size", size)
 			if size > 0 {
-				if !cr.ignorePattern.MatchString(torrent.Info.Name) {
+				var pushTorrent bool
+				if force {
+					pushTorrent = true
+				} else{
+					if id, err := cr.DB.GetTorrent(torrent.Info.Name); err == nil{
+						if id == TorrentInvalidId {
+							pushTorrent = !cr.ignorePattern.MatchString(torrent.Info.Name)
+						} else {
+							pushTorrent = true
+						}
+					} else{
+						logger.Error(err)
+					}
+				}
+
+				if pushTorrent {
 					files := torrent.Files()
 					logger.Debug("Adding torrent", torrent.Info.Name)
 					logger.Debug("Files: ", files)

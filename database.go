@@ -76,6 +76,8 @@ const (
 	FileConvertingStatus = 1
 	FileReadyStatus      = 2
 	FileErrorStatus      = 255
+
+	TorrentInvalidId = -1
 )
 
 func (db *Database) checkConnection() error {
@@ -179,7 +181,7 @@ func (db *Database) DelAdmin(id int64) error {
 func (db *Database) GetTorrent(torrent string) (int64, error) {
 	var torrentId int64
 	var err error
-	torrentId = -1
+	torrentId = TorrentInvalidId
 	if err = db.checkConnection(); err == nil {
 		var rows *sql.Rows
 		rows, err = db.Connection.Query(selectTorrentId, torrent)
