@@ -68,6 +68,7 @@ type Observer struct {
 		Password   string     `json:"password"`
 		Path       string     `json:"path"`
 		Encryption bool       `json:"encryption"`
+		Trackers   []string   `json:"trackers"`
 		Client     *tr.Client `json:"-"`
 	} `json:"transmission"`
 	DB       Database `json:"db"`
@@ -80,16 +81,16 @@ type Observer struct {
 		OTPSeed   string `json:"otpseed"`
 		Messages  struct {
 			tg.TGMessages
-			State            string         `json:"state"`
-			stateTmpl        *tmpl.Template `json:"-"`
-			VideoIgnored     string         `json:"videoignored"`
-			videoIgnoredTmpl *tmpl.Template `json:"-"`
-			VideoForced      string         `json:"videoforced"`
-			videoForcedTmpl  *tmpl.Template `json:"-"`
-			KUpload          string         `json:"kupload"`
-			kuploadTmpl      *tmpl.Template `json:"-"`
-			TUpload          string         `json:"tupload"`
-			tuploadTmpl      *tmpl.Template `json:"-"`
+			State            string `json:"state"`
+			stateTmpl        *tmpl.Template
+			VideoIgnored     string `json:"videoignored"`
+			videoIgnoredTmpl *tmpl.Template
+			VideoForced      string `json:"videoforced"`
+			videoForcedTmpl  *tmpl.Template
+			KUpload          string `json:"kupload"`
+			kuploadTmpl      *tmpl.Template
+			TUpload          string `json:"tupload"`
+			tuploadTmpl      *tmpl.Template
 		} `json:"msg"`
 		Video struct {
 			Upload   bool   `json:"upload"`
@@ -102,7 +103,7 @@ type Observer struct {
 		WatchPath string   `json:"watchpath"`
 		Tags      []string `json:"tags"`
 	} `json:"kaltura"`
-	ignorePattern *regexp.Regexp `json:"-"`
+	ignorePattern *regexp.Regexp
 }
 
 func ReadConfig(path string) (*Observer, error) {
@@ -348,9 +349,9 @@ func (cr *Observer) cmdCheckTorrent(chat int64, _, args string) error {
 		if isAdmin {
 			var offset uint64
 			if offset, err = strconv.ParseUint(args, 10, 64); err == nil {
-				if torrent := cr.checkTorrent(uint(offset), true); torrent != nil{
+				if torrent := cr.checkTorrent(uint(offset), true); torrent != nil {
 					go cr.uploadTorrents([]*Torrent{torrent})
-				} else{
+				} else {
 					err = errors.New("<nil>")
 				}
 			}
@@ -376,14 +377,14 @@ func (cr *Observer) checkTorrent(offset uint, force bool) *Torrent {
 				var pushTorrent bool
 				if force {
 					pushTorrent = true
-				} else{
-					if id, err := cr.DB.GetTorrent(torrent.Info.Name); err == nil{
+				} else {
+					if id, err := cr.DB.GetTorrent(torrent.Info.Name); err == nil {
 						if id == TorrentInvalidId {
 							pushTorrent = !cr.ignorePattern.MatchString(torrent.Info.Name)
 						} else {
 							pushTorrent = true
 						}
-					} else{
+					} else {
 						logger.Error(err)
 					}
 				}
@@ -453,6 +454,7 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 			logger.Error(err)
 		}
 		falsePtr := new(bool)
+		addedTorrents := make([]int64, 0, len(newTorrents))
 		for _, newTorrent := range newTorrents {
 			b64 := base64.StdEncoding.EncodeToString(newTorrent.RawData)
 			if addedTorrent, err := cr.Transmission.Client.TorrentAdd(&tr.TorrentAddPayload{
@@ -461,12 +463,22 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 				Paused:      falsePtr,
 			}); err == nil {
 				if addedTorrent != nil {
+					addedTorrents = append(addedTorrents, *addedTorrent.ID)
 					logger.Debug("Added torrent", *(addedTorrent.Name))
 				} else {
 					logger.Warning("AddTorrent undefined result", newTorrent.Info.Name)
 				}
 			} else {
 				logger.Error(err)
+			}
+		}
+		if len(addedTorrents) > 0 && len(cr.Transmission.Trackers) > 0{
+			trackers := tr.TorrentSetPayload{
+				IDs:                 addedTorrents,
+				TrackerAdd:          cr.Transmission.Trackers,
+			}
+			if err := cr.Transmission.Client.TorrentSet(&trackers); err != nil {
+				logger.Warning("Unable to append trackers ", err)
 			}
 		}
 	} else {
@@ -541,7 +553,7 @@ func (cr *Observer) checkVideo() {
 											}
 										}
 									}
-									if err != nil{
+									if err != nil {
 										logger.Error(err)
 										cr.Telegram.Client.SendMsg(fmt.Sprint(cr.Telegram.Messages.Error, err,
 											" entry id ", entryId,

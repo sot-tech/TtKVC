@@ -46,7 +46,10 @@
 		"login": "",
 		"password": "",
 		"path": "",
-		"encryption": false
+		"encryption": false,
+		"trackers": [
+			"http://retracker.local/announce"
+		]
 	},
 	"kaltura": {
 		"url": "http://localhost",
