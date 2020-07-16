@@ -61,6 +61,7 @@ const (
 var logger = logging.MustGetLogger("observer")
 var nonLetterNumberSpaceRegexp = regexp.MustCompile(`(?m)[^\p{L}\p{N}_\s]`)
 var nonEmptyRegexp = regexp.MustCompile("^$")
+var allSpacesRegexp = regexp.MustCompile(`(?m)\s`)
 
 func isEmpty(s string) bool {
 	return len(s) == 0

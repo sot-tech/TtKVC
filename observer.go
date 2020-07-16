@@ -635,13 +635,13 @@ func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, string) {
 										tags.WriteRune(',')
 									}
 									e = nonLetterNumberSpaceRegexp.ReplaceAllString(e, "")
-									tags.WriteString(strings.ReplaceAll(e, " ", "_"))
+									tags.WriteString(allSpacesRegexp.ReplaceAllString(e, "_"))
 								}
 							}
 						} else {
 							m = strings.TrimSpace(m)
 							m = nonLetterNumberSpaceRegexp.ReplaceAllString(m, "")
-							tags.WriteString(strings.ReplaceAll(m, " ", "_"))
+							tags.WriteString(allSpacesRegexp.ReplaceAllString(m, "_"))
 						}
 					}
 				}
