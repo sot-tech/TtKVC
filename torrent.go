@@ -32,6 +32,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
+	"time"
 )
 
 type Torrent struct {
@@ -56,7 +57,19 @@ type Torrent struct {
 	RawData []byte `bensode:"-"`
 }
 
-func GetTorrent(url string) (*Torrent, error) {
+func GetTorrent(url string, reloadDelay uint) (*Torrent, error){
+	var res *Torrent
+	var err error
+	if res, err = getTorrent(url); err == nil && res != nil{
+		if reloadDelay > 0 {
+			time.Sleep(time.Duration(reloadDelay) * time.Second)
+			res, err = getTorrent(url)
+		}
+	}
+	return res, err
+}
+
+func getTorrent(url string) (*Torrent, error) {
 	var res *Torrent
 	var err error
 	if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {

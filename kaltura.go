@@ -64,7 +64,7 @@ type Kaltura struct {
 	PartnerId uint   `json:"partnerid"`
 	UserId    string `json:"userid"`
 	Secret    string `json:"secret"`
-	session   string `json:"-"`
+	session   string
 }
 
 type KSession struct {
@@ -264,15 +264,19 @@ func (kl *Kaltura) GetMediaEntry(id string) (KMediaEntry, error) {
 	return entry, err
 }
 
-func (kl *Kaltura) CreateMediaEntry(name, tags string) (string, error) {
+func (kl *Kaltura) CreateMediaEntry(path, name, tags string) (string, error) {
 	var err error
 	var entry KMediaEntry
 	var entryId string
+	var entryName = name
+	if isEmpty(entryName) {
+		entryName = filepath.Base(path)
+	}
 	obj := map[string]interface{}{
 		"entry": KMediaEntry{
 			KBaseEntry: KBaseEntry{
 				KObject: KObject{
-					Name:       filepath.Base(name),
+					Name:       entryName,
 					ObjectType: "KalturaMediaEntry",
 				},
 				UserId:    kl.UserId,

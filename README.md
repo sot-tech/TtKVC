@@ -38,6 +38,7 @@ ttkvc -c /etc/ttkvc.json
 	- contexturl - string - torrent context respectively to `baseurl` (`/catalog/%d`, `%d` - is the place to insert id)
 	- threshold - uint - number to id's to check in one try. If current id is 1000 and `threshold` set to 3, observer will check 1000, 1001, 1002
 	- delay - uint - minimum delay between two checks, real delay is random between value and 2*value
+	- reloaddelay - uint - if torrent download success, retry download after some seconds to ensure, that torrent has already proceed by tracker
 	- ignoreregexp - string - filename regexp to **not** upload to kaltura
 	- metaactions - list of actions to extract meta info release (see GoHTExtractor readme)
  - transmission
@@ -47,13 +48,19 @@ ttkvc -c /etc/ttkvc.json
 	- password - string
 	- path - string - path of transmission server to download torrent files
 	- encryption - bool - use encryption to connect to transmission
+	- trackers - string array - couple of other trackers URLs to append to torrent
  - kaltura
 	- url - string - base url to kaltura
     - partnerid - uint
     - userid - string - kaltura user login
     - secret - string - kaltura user secret
     - watchpath - string - to watch for downloaded files
-    - tags - string array - keys of meta info, extracted with `metaactions` to create tags in kaltura
+    - tags - map of string-boolean - keys of meta info, extracted with `metaactions` to create tags in kaltura, if set to true - try to split comma-separated string and process individually
+    - entryname - string - template of entry name, if result string is empty - fallback to file name. Possible placeholders:
+        - `{{.meta.*}}` - value from extracted meta (instead of `*`)
+        - `{{.index}}` - file order in torrent (sorted by file name)
+        - `{{.id}}` - unique file id in DB
+        - `{{.name}}` - file name
  - telegram
 	- apiid - int - API ID received from [telegram](https://my.telegram.org/apps)
     - apihash - string - API HASH received from [telegram](https://my.telegram.org/apps)
@@ -83,7 +90,7 @@ ttkvc -c /etc/ttkvc.json
         - videoforced - string - message template when video uploaded to kaltura, and **will** be uploaded to telegram. Placeholders same as previous.
         - kupload - string  - message template when video entry created in kaltura. Possible placeholders:
             - `{{.name}}` - file name
-            - `{{.id}}` - kaltura media entry
+            - `{{.id}}` - kaltura media entry id
         - tupload - string - message template for telegram video caption. Possible placeholders:
             - `{{.meta.*}}` - value from extracted meta (instead of `*`)
             - `{{.index}}` - file order in torrent (sorted by file name)
@@ -96,6 +103,11 @@ ttkvc -c /etc/ttkvc.json
 
 ## Admins
 Administrators are chats, that receive messages about kaltura uploads, and can disable or enable upload video to telegram (for particular video).
+`/switchignore_{id}` - switch status of file. If particular file set to not upload - it will be uploaded to Telegram and vice versa. 
+_NB: id - is identifier in DB._
+
+`/forceupload {id}` -  forcibly upload file with provided id, even if file names inside torrent matches with `crawler.ignoreregexp`. 
+_NB: id - is offset respectively to `crawler.contexturl`._
 
 To become admin, chat should call `/setadmin 123456` in telegram, where 123456 - is an OTP, seeded by `adminotpseed`,
 to revoke admin call `/rmadmin 123456`.

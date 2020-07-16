@@ -8,6 +8,7 @@
 		"contexturl": "torrent/%d",
 		"threshold": 10,
 		"delay": 10,
+		"reloaddelay": 10,
 		"ignoreregexp": ".*1080p.*|.*1080P.*",
 		"metaactions": [
 			{
@@ -57,10 +58,11 @@
 		"userid": "user@localhost.localdomain",
 		"secret": "abcdef1234567890",
 		"watchpath": "/some/dir",
-		"tags": [
-			"name_en",
-			"name"
-		]
+		"tags": {
+			"name_en": false,
+			"authors": true
+		},
+		"entryname": "{{printf \"%02d\" .index}} [{{.id}}] - {{.meta.name} ({{call .replace .name \"_\" \" \"}}) }"
 	},
 	"telegram": {
 		"apiid": 123456,

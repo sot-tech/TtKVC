@@ -53,12 +53,14 @@ const (
 	pIgnore          = "ignorecmd"
 	pMeta            = "meta"
 	pTags            = "tags"
+	fReplace         = "replace"
 	tCmdSwitchIgnore = "/switchignore"
 	tCmdForceUpload  = "/forceupload"
 )
 
 var logger = logging.MustGetLogger("observer")
-var nonLetterNumberSpaceRegexp = regexp.MustCompile("[^\\p{L}\\p{N}_ ]")
+var nonLetterNumberSpaceRegexp = regexp.MustCompile(`(?m)[^\p{L}\p{N}_\s]`)
+var nonEmptyRegexp = regexp.MustCompile("^$")
 
 func isEmpty(s string) bool {
 	return len(s) == 0
@@ -89,6 +91,7 @@ func formatMessage(tmpl *template.Template, values map[string]interface{}) (stri
 	var res string
 	if tmpl != nil {
 		buf := bytes.Buffer{}
+		values[fReplace] = strings.ReplaceAll
 		if err = tmpl.Execute(&buf, values); err == nil {
 			res = buf.String()
 		}

@@ -57,6 +57,7 @@ type Observer struct {
 		ContextURL    string                      `json:"contexturl"`
 		Delay         uint                        `json:"delay"`
 		Threshold     uint                        `json:"threshold"`
+		ReloadDelay   uint                        `json:"reloaddelay"`
 		IgnoreRegexp  string                      `json:"ignoreregexp"`
 		MetaActions   []HTExtractor.ExtractAction `json:"metaactions"`
 		MetaExtractor *HTExtractor.Extractor      `json:"-"`
@@ -100,8 +101,10 @@ type Observer struct {
 	} `json:"telegram"`
 	Kaltura struct {
 		Kaltura
-		WatchPath string   `json:"watchpath"`
-		Tags      []string `json:"tags"`
+		WatchPath     string          `json:"watchpath"`
+		Tags          map[string]bool `json:"tags"`
+		EntryName     string          `json:"entryname"`
+		entryNameTmpl *tmpl.Template
 	} `json:"kaltura"`
 	ignorePattern *regexp.Regexp
 }
@@ -184,6 +187,12 @@ func (cr *Observer) InitKaltura() error {
 		err = cr.Kaltura.CreateSession()
 	}
 	logger.Debug("Kaltura init complete, err", err)
+	if !isEmpty(cr.Kaltura.EntryName){
+		var msgErr error
+		if cr.Kaltura.entryNameTmpl, msgErr = tmpl.New("entryName").Parse(cr.Kaltura.EntryName); msgErr != nil {
+			logger.Error(msgErr)
+		}
+	}
 	return err
 }
 
@@ -260,7 +269,9 @@ func (cr *Observer) InitMessages() error {
 
 func (cr *Observer) Init() error {
 	var err error
-	if cr.ignorePattern, err = regexp.Compile(cr.Crawler.IgnoreRegexp); err != nil {
+	if isEmpty(cr.Crawler.IgnoreRegexp){
+		cr.ignorePattern = nonEmptyRegexp
+	} else if cr.ignorePattern, err = regexp.Compile(cr.Crawler.IgnoreRegexp); err != nil {
 		return err
 	}
 	if err = cr.DB.Connect(); err != nil {
@@ -368,7 +379,7 @@ func (cr *Observer) checkTorrent(offset uint, force bool) *Torrent {
 	var torrent *Torrent
 	logger.Debug("Checking offset ", offset)
 	fullContext := fmt.Sprintf(cr.Crawler.ContextURL, offset)
-	if torrent, err = GetTorrent(cr.Crawler.BaseURL + fullContext); err == nil {
+	if torrent, err = GetTorrent(cr.Crawler.BaseURL+fullContext, cr.Crawler.ReloadDelay); err == nil {
 		if torrent != nil {
 			logger.Info("New file", torrent.Info.Name)
 			size := torrent.FullSize()
@@ -472,10 +483,10 @@ func (cr *Observer) uploadTorrents(newTorrents []*Torrent) {
 				logger.Error(err)
 			}
 		}
-		if len(addedTorrents) > 0 && len(cr.Transmission.Trackers) > 0{
+		if len(addedTorrents) > 0 && len(cr.Transmission.Trackers) > 0 {
 			trackers := tr.TorrentSetPayload{
-				IDs:                 addedTorrents,
-				TrackerAdd:          cr.Transmission.Trackers,
+				IDs:        addedTorrents,
+				TrackerAdd: cr.Transmission.Trackers,
 			}
 			if err := cr.Transmission.Client.TorrentSet(&trackers); err != nil {
 				logger.Warning("Unable to append trackers ", err)
@@ -527,8 +538,9 @@ func (cr *Observer) checkVideo() {
 								if admins, err = cr.DB.GetAdmins(); err == nil {
 									fName := stat.Name()
 									logger.Debugf("Found ready file %s, size: %d", fName, stat.Size())
-									var entryId string
-									if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, cr.prepareKTags(file.Torrent));
+									var entryId  string
+									entryName, entryTags := cr.prepareKOptions(file)
+									if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, entryName, entryTags);
 										err == nil && !isEmpty(entryId) {
 										logger.Debug("Uploading file", fName)
 										if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
@@ -601,35 +613,57 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
-func (cr *Observer) prepareKTags(id int64) string {
-	sb := strings.Builder{}
+func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, string) {
+	var name string
+	var err error
+	tags := strings.Builder{}
 	if len(cr.Kaltura.Tags) > 0 {
-		if meta, err := cr.DB.GetTorrentMeta(id); err == nil {
+		var meta map[string]string
+		if meta, err = cr.DB.GetTorrentMeta(torrentFile.Torrent); err == nil {
 			if len(meta) > 0 {
 				isFirst := true
-				for _, k := range cr.Kaltura.Tags {
-					m := meta[k]
+				for tag, multival := range cr.Kaltura.Tags {
+					m := meta[tag]
 					if !isEmpty(m) {
-						for _, e := range strings.Split(m, ",") {
-							e = strings.TrimSpace(e)
-							if !isEmpty(e) {
-								if isFirst {
-									isFirst = false
-								} else {
-									sb.WriteRune(',')
+						if multival {
+							for _, e := range strings.Split(m, ",") {
+								e = strings.TrimSpace(e)
+								if !isEmpty(e) {
+									if isFirst {
+										isFirst = false
+									} else {
+										tags.WriteRune(',')
+									}
+									e = nonLetterNumberSpaceRegexp.ReplaceAllString(e, "")
+									tags.WriteString(strings.ReplaceAll(e, " ", "_"))
 								}
-								e = nonLetterNumberSpaceRegexp.ReplaceAllString(e, "")
-								sb.WriteString(strings.ReplaceAll(e, " ", "_"))
 							}
+						} else {
+							m = strings.TrimSpace(m)
+							m = nonLetterNumberSpaceRegexp.ReplaceAllString(m, "")
+							tags.WriteString(strings.ReplaceAll(m, " ", "_"))
 						}
 					}
 				}
+				if cr.Kaltura.entryNameTmpl != nil {
+					data := map[string]interface{}{
+						pMeta:     meta,
+						pId: torrentFile.Id,
+						pName: torrentFile.Name,
+					}
+					var index int64
+					if index, err = cr.DB.GetTorrentFileIndex(torrentFile.Torrent, torrentFile.Id); err == nil{
+						data[pIndex] = index
+					}
+					name, err = formatMessage(cr.Kaltura.entryNameTmpl, data)
+				}
 			}
-		} else {
-			logger.Error(err)
 		}
 	}
-	return sb.String()
+	if err != nil {
+		logger.Error(err)
+	}
+	return name, tags.String()
 }
 
 func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, _, args string) error {
@@ -685,20 +719,6 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 	var err error
 	var meta map[string]string
 	if meta, err = cr.DB.GetTorrentMeta(file.Torrent); err == nil {
-		//if len(meta) == 0{
-		//	logger.Warningf("Meta for file %s not found, reloading from target", file.Name)
-		//	var offset uint
-		//	var merr error
-		//	if offset, merr = cr.DB.GetTorrentOffset(file.Torrent); merr == nil && offset > 0{
-		//		fullContext := fmt.Sprintf(cr.Crawler.ContextURL, offset)
-		//		if meta, merr = cr.getTorrentMeta(fullContext); merr == nil && len(meta) > 0{
-		//			merr = cr.DB.AddTorrentMeta(file.Torrent, meta)
-		//		}
-		//	}
-		//	if merr != nil{
-		//		logger.Error(merr)
-		//	}
-		//}
 		var chats []int64
 		if chats, err = cr.DB.GetChats(); err == nil {
 			var index int64
