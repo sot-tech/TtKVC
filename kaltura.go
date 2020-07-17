@@ -264,13 +264,25 @@ func (kl *Kaltura) GetMediaEntry(id string) (KMediaEntry, error) {
 	return entry, err
 }
 
-func (kl *Kaltura) CreateMediaEntry(path, name, tags string) (string, error) {
+func (kl *Kaltura) CreateMediaEntry(path, name string, tags []string) (string, error) {
 	var err error
 	var entry KMediaEntry
 	var entryId string
 	var entryName = name
 	if isEmpty(entryName) {
 		entryName = filepath.Base(path)
+	}
+	cTags := strings.Builder{}
+	if len(tags) > 0 {
+		isFirst := true
+		for _, tag := range tags {
+			if isFirst {
+				isFirst = false
+			} else{
+				cTags.WriteRune(',')
+			}
+			cTags.WriteString(tag)
+		}
 	}
 	obj := map[string]interface{}{
 		"entry": KMediaEntry{
@@ -281,7 +293,7 @@ func (kl *Kaltura) CreateMediaEntry(path, name, tags string) (string, error) {
 				},
 				UserId:    kl.UserId,
 				CreatorId: kl.UserId,
-				Tags:      tags,
+				Tags:      cTags.String(),
 			},
 			MediaType:  kVideoMediaType,
 			SourceType: kFileSourceType,

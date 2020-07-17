@@ -613,15 +613,14 @@ func (cr *Observer) checkVideo() {
 	}
 }
 
-func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, string) {
+func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, []string) {
 	var name string
 	var err error
-	tags := strings.Builder{}
+	tags := make([]string, 0, len(cr.Kaltura.Tags))
 	if len(cr.Kaltura.Tags) > 0 {
 		var meta map[string]string
 		if meta, err = cr.DB.GetTorrentMeta(torrentFile.Torrent); err == nil {
 			if len(meta) > 0 {
-				isFirst := true
 				for tag, multival := range cr.Kaltura.Tags {
 					m := meta[tag]
 					if !isEmpty(m) {
@@ -629,19 +628,14 @@ func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, string) {
 							for _, e := range strings.Split(m, ",") {
 								e = strings.TrimSpace(e)
 								if !isEmpty(e) {
-									if isFirst {
-										isFirst = false
-									} else {
-										tags.WriteRune(',')
-									}
 									e = nonLetterNumberSpaceRegexp.ReplaceAllString(e, "")
-									tags.WriteString(allSpacesRegexp.ReplaceAllString(e, "_"))
+									tags = append(tags, allSpacesRegexp.ReplaceAllString(e, "_"))
 								}
 							}
 						} else {
 							m = strings.TrimSpace(m)
 							m = nonLetterNumberSpaceRegexp.ReplaceAllString(m, "")
-							tags.WriteString(allSpacesRegexp.ReplaceAllString(m, "_"))
+							tags = append(tags, allSpacesRegexp.ReplaceAllString(m, "_"))
 						}
 					}
 				}
@@ -663,7 +657,7 @@ func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, string) {
 	if err != nil {
 		logger.Error(err)
 	}
-	return name, tags.String()
+	return name, tags
 }
 
 func (cr *Observer) cmdSwitchFileReadyStatus(chat int64, _, args string) error {
