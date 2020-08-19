@@ -96,7 +96,8 @@ ttkvc -c /etc/ttkvc.json
             - `{{.index}}` - file order in torrent (sorted by file name)
             - `{{.tags}}` - formatted tags from kaltura
     - video
-        - upload - bool - automatically upload converted videos to telegram 
+        - upload - bool - automatically upload converted videos to telegram
+        - sequential - bool - video won't be uploaded to telegram until previous (by name order) videos from torrent not in ready state
         - temppath - string - temp path to store video, downloaded from kaltura
  - db
 	- connection - string - path to db

@@ -94,8 +94,9 @@ type Observer struct {
 			tuploadTmpl      *tmpl.Template
 		} `json:"msg"`
 		Video struct {
-			Upload   bool   `json:"upload"`
-			TempPath string `json:"temppath"`
+			Upload           bool   `json:"upload"`
+			SequentialUpload bool   `json:"sequential"`
+			TempPath         string `json:"temppath"`
 		} `json:"video"`
 		Client *tg.Telegram `json:"-"`
 	} `json:"telegram"`
@@ -187,7 +188,7 @@ func (cr *Observer) InitKaltura() error {
 		err = cr.Kaltura.CreateSession()
 	}
 	logger.Debug("Kaltura init complete, err", err)
-	if !isEmpty(cr.Kaltura.EntryName){
+	if !isEmpty(cr.Kaltura.EntryName) {
 		var msgErr error
 		if cr.Kaltura.entryNameTmpl, msgErr = tmpl.New("entryName").Parse(cr.Kaltura.EntryName); msgErr != nil {
 			logger.Error(msgErr)
@@ -269,7 +270,7 @@ func (cr *Observer) InitMessages() error {
 
 func (cr *Observer) Init() error {
 	var err error
-	if isEmpty(cr.Crawler.IgnoreRegexp){
+	if isEmpty(cr.Crawler.IgnoreRegexp) {
 		cr.ignorePattern = nonEmptyRegexp
 	} else if cr.ignorePattern, err = regexp.Compile(cr.Crawler.IgnoreRegexp); err != nil {
 		return err
@@ -538,7 +539,7 @@ func (cr *Observer) checkVideo() {
 								if admins, err = cr.DB.GetAdmins(); err == nil {
 									fName := stat.Name()
 									logger.Debugf("Found ready file %s, size: %d", fName, stat.Size())
-									var entryId  string
+									var entryId string
 									entryName, entryTags := cr.prepareKOptions(file)
 									if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, entryName, entryTags);
 										err == nil && !isEmpty(entryId) {
@@ -587,13 +588,15 @@ func (cr *Observer) checkVideo() {
 							var entry KMediaEntry
 							if entry, err = cr.Kaltura.GetMediaEntry(file.EntryId); err == nil {
 								if entry.Status == KEntryStatusReady {
-									if err = cr.DB.SetTorrentFileStatus(file.Id, FileReadyStatus); err == nil {
-										var flavors KFlavorAssetSearchResult
-										if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
-											if len(flavors.Objects) == 0 {
-												err = errors.New("flavors for entry " + file.EntryId + " not found")
-											} else {
-												cr.sendTelegramVideo(file, entry, flavors.Objects[0])
+									if cr.checkUploadFile(file) {
+										if err = cr.DB.SetTorrentFileStatus(file.Id, FileReadyStatus); err == nil {
+											var flavors KFlavorAssetSearchResult
+											if flavors, err = cr.Kaltura.GetMediaEntryFlavorAssets(file.EntryId); err == nil {
+												if len(flavors.Objects) == 0 {
+													err = errors.New("flavors for entry " + file.EntryId + " not found")
+												} else {
+													cr.sendTelegramVideo(file, entry, flavors.Objects[0])
+												}
 											}
 										}
 									}
@@ -641,12 +644,12 @@ func (cr *Observer) prepareKOptions(torrentFile TorrentFile) (string, []string) 
 				}
 				if cr.Kaltura.entryNameTmpl != nil {
 					data := map[string]interface{}{
-						pMeta:     meta,
-						pId: torrentFile.Id,
+						pMeta: meta,
+						pId:   torrentFile.Id,
 						pName: torrentFile.Name,
 					}
 					var index int64
-					if index, err = cr.DB.GetTorrentFileIndex(torrentFile.Torrent, torrentFile.Id); err == nil{
+					if index, err = cr.DB.GetTorrentFileIndex(torrentFile.Torrent, torrentFile.Id); err == nil {
 						data[pIndex] = index
 					}
 					name, err = formatMessage(cr.Kaltura.entryNameTmpl, data)
@@ -760,4 +763,32 @@ func (cr *Observer) sendTelegramVideo(file TorrentFile, entry KMediaEntry, flavo
 	if err != nil {
 		logger.Error(err)
 	}
+}
+
+func (cr *Observer) checkUploadFile(file TorrentFile) bool {
+	doUpload := true
+	if cr.Telegram.Video.SequentialUpload {
+		var err error
+		var allTorrentFiles []TorrentFile
+		if allTorrentFiles, err = cr.DB.GetTorrentFiles(file.Torrent); err == nil {
+			var currentFileIndex int64 = TorrentInvalidId
+			for _, tf := range allTorrentFiles {
+				if tf.Id == file.Id {
+					currentFileIndex = file.Index
+					break
+				}
+			}
+			for i, allFilesLen := 0, len(allTorrentFiles);
+				doUpload && i < allFilesLen && allTorrentFiles[i].Index < currentFileIndex;
+				i++{
+					if allTorrentFiles[i].Status != FileReadyStatus {
+						doUpload = false
+					}
+			}
+		}
+		if err != nil {
+			logger.Error(err)
+		}
+	}
+	return doUpload
 }

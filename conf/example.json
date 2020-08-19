@@ -91,6 +91,7 @@
 		},
 		"video": {
 			"upload": true,
+			"sequential": true,
 			"temppath": "/tmp"
 		}
 	},
