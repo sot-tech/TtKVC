@@ -59,7 +59,7 @@ const (
 	selectTorrentMeta = "SELECT NAME, VALUE FROM TT_TORRENT_META WHERE TORRENT = $1"
 	insertTorrentMeta = "INSERT INTO TT_TORRENT_META(TORRENT, NAME, VALUE) VALUES($1, $2, $3) ON CONFLICT(TORRENT,NAME) DO UPDATE SET VALUE = EXCLUDED.VALUE"
 
-	selectTorrentFiles          = "SELECT SELECT ID, TORRENT, NAME, ENTRY_ID, READY, ROW_NUMBER() OVER(ORDER BY NAME) AS IND FROM TT_TORRENT_FILE"
+	selectTorrentFiles          = "SELECT ID, TORRENT, NAME, ENTRY_ID, READY, ROW_NUMBER() OVER(ORDER BY NAME) AS IND FROM TT_TORRENT_FILE"
 	selectTorrentFileById       = selectTorrentFiles + " WHERE ID = $1"
 	selectTorrentFilesByTorrent = selectTorrentFiles + " WHERE TORRENT = $1 ORDER BY NAME"
 	selectTorrentFilesNotReady  = selectTorrentFiles + " WHERE READY != $1 ORDER BY NAME"

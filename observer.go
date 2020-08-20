@@ -774,7 +774,7 @@ func (cr *Observer) checkUploadFile(file TorrentFile) bool {
 			var currentFileIndex int64 = TorrentInvalidId
 			for _, tf := range allTorrentFiles {
 				if tf.Id == file.Id {
-					currentFileIndex = file.Index
+					currentFileIndex = tf.Index
 					break
 				}
 			}
