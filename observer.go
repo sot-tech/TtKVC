@@ -112,7 +112,7 @@ type Observer struct {
 
 func ReadConfig(path string) (*Observer, error) {
 	config := new(Observer)
-	confData, err := ioutil.ReadFile(path)
+	confData, err := ioutil.ReadFile(filepath.Clean(path))
 	if err == nil {
 		err = json.Unmarshal(confData, config)
 	}

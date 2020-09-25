@@ -342,6 +342,7 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 				logger.Error(err)
 				return
 			}
+			name = filepath.Clean(name)
 			part, err := m.CreateFormFile("resource:fileData", filepath.Base(name))
 			if err != nil {
 				logger.Error(err)
@@ -353,10 +354,11 @@ func (kl *Kaltura) UploadMediaContent(name, entryId string) error {
 				return
 			}
 			if file != nil {
-				defer file.Close()
 				if _, err = io.Copy(part, file); err != nil {
 					logger.Error(err)
-					return
+				}
+				if err = file.Close(); err != nil{
+					logger.Error(err)
 				}
 			} else {
 				logger.Error("File object is nil")

@@ -108,12 +108,14 @@ func downloadToDirectory(path, url, ext string) (string, error) {
 	var tmpFile *os.File
 	if tmpFile, err = ioutil.TempFile(path, "*."+ext); err == nil {
 		tmpFileName = tmpFile.Name()
-		defer tmpFile.Close()
 		if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
 			defer resp.Body.Close()
 			_, err = io.Copy(tmpFile, resp.Body)
 		} else {
 			err = responseError(resp, httpErr)
+		}
+		if fErr := tmpFile.Close(); fErr != nil{
+			logger.Error(err)
 		}
 	}
 	return tmpFileName, err
