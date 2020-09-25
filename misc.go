@@ -110,7 +110,9 @@ func downloadToDirectory(path, url, ext string) (string, error) {
 		tmpFileName = tmpFile.Name()
 		if resp, httpErr := http.Get(url); checkResponse(resp, httpErr) {
 			defer resp.Body.Close()
-			_, err = io.Copy(tmpFile, resp.Body)
+			if _, err = io.Copy(tmpFile, resp.Body); err == nil{
+				err = tmpFile.Sync()
+			}
 		} else {
 			err = responseError(resp, httpErr)
 		}
