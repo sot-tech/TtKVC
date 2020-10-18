@@ -543,10 +543,10 @@ func (cr *Observer) checkVideo() {
 									entryName, entryTags := cr.prepareKOptions(file)
 									if entryId, err = cr.Kaltura.CreateMediaEntry(fullPath, entryName, entryTags);
 										err == nil && !isEmpty(entryId) {
-										logger.Debug("Uploading file", fName)
-										if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
-											logger.Debug("Updating file entry id", entryId)
-											if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
+										logger.Debug("Updating file entry id", entryId)
+										if err = cr.DB.SetTorrentFileEntryId(file.Id, entryId); err == nil {
+											logger.Debug("Uploading file", fName)
+											if err = cr.Kaltura.UploadMediaContent(fullPath, entryId); err == nil {
 												var msg string
 												if msg, err = formatMessage(cr.Telegram.Messages.kuploadTmpl,
 													map[string]interface{}{
