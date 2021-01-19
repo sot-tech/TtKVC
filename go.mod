@@ -8,7 +8,7 @@ require (
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/zeebo/bencode v1.0.0
 	sot-te.ch/HTExtractor v0.1.1
-	sot-te.ch/MTHelper v0.1.9
+	sot-te.ch/MTHelper v0.1.10
 )
 
 replace sot-te.ch/MTHelper => ../MTHelper
